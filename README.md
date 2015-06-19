@@ -1,4 +1,4 @@
-#Network Enumeration and Mapping
+#Network Enumeration and Mapping Framework
 The Network Enumeration and Mapping (NME) framework is a collection of Powershell scripts used to gather information about domains, networks, computers, services and applications from various sources, and then store the information in memory as as custom Powershell objects. The object for a specific asset can be created in multiple ways, such as by importing output files of external tools (such as nmap), by running some of the enumeration scripts in the framework, or simply by creating them manually with built-in helper functions. Once created, the object acts as a structured placeholder for information gathered about that asset. Furthermore, and perhaps more importantly, the objects are supported as input to (most) other enumeration and testing scripts in the framework. This allows for easy access to all assets (no need to create separate target lists) and a flexible way to filter targets using the built-in capabilities of PowerShell.
 
 The framework currently consists of the following scripts:
