@@ -157,8 +157,8 @@ Set-Alias NME-DNS-QueryDNS Invoke-DNSQuery -Scope Global
 #Set-Alias NME-WMI-DumpCredentials Invoke-WMIDumpCredentials -Scope Global
 #Set-Alias NME-WMI-GetNetstat Invoke-WMINetstat -Scope Global
 
-#Set-Alias NME-ImportNmap Import-Nmap -Scope Global
-#Set-Alias NME-ImportNessus Import-Nessus -Scope Global
+Set-Alias NME-ImportNmapXML Import-NmapXML -Scope Global
+Set-Alias NME-ImportNessusXML Import-NessusXML -Scope Global
 Set-Alias NME-BackupObjects Backup-Objects -Scope Global
 Set-Alias NME-RestoreObjects Restore-Objects -Scope Global
 Set-Alias NME-ImpersonateUser Invoke-UserImpersonation -Scope Global
