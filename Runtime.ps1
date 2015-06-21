@@ -149,11 +149,10 @@ Set-Alias NME-SMB-TestShares Test-SMBShares -Scope Global
 Set-Alias NME-MSSQL-EnumServices Get-MSSQLServers -Scope Global
 Set-Alias NME-MSSQL-TestCredentials Test-MSSQLCredentials -Scope Global
 Set-Alias NME-MSSQL-TestWindowsLogin Test-MSSQLWindowsLogin -Scope Global
-
 Set-Alias NME-WHOIS-QueryWHOIS Invoke-WHOISQuery -Scope Global
 Set-Alias NME-DNS-QueryDNS Invoke-DNSQuery -Scope Global
-#Set-Alias NME-HTTP-QueryBing Invoke-HTTPBingQuery -Scope Global
-Set-Alias NME-HTTP-GoogleSubnames Invoke-GoogleSubnames -Scope Global
+Set-Alias NME-HTTP-BingHostnames Invoke-BingHostnames -Scope Global
+Set-Alias NME-HTTP-GoogleHostnames Invoke-GoogleHostnames -Scope Global
 #Set-Alias NME-WMI-DumpCredentials Invoke-WMIDumpCredentials -Scope Global
 #Set-Alias NME-WMI-GetNetstat Invoke-WMINetstat -Scope Global
 
@@ -168,7 +167,7 @@ Set-Alias NME-GetComputer Get-ComputerObject -Scope Global
 Set-Alias NME-GetMSSQLServer Get-MSSQLObject -Scope Global
 Set-Alias NME-GetSMBShare Get-SMBShareObject -Scope Global
 Set-Alias NME-GetDNSDomain Get-DNSDomainObject -Scope Global
-Set-Alias NME-GetDNSRecord Get-DNSRecordObject -Scope Global
+#Set-Alias NME-GetDNSRecord Get-DNSRecordObject -Scope Global
 Set-Alias NME-GetCredential Get-CredentialObject -Scope Global
 
 Write-Host 'Changing path to working directory'

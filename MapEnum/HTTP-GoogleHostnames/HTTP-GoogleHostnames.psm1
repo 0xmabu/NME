@@ -1,10 +1,10 @@
 ﻿<#
  
 .SYNOPSIS
-Queries Google to identify host and child domain names within a given parent domain.
+Queries Google to identify hostnames within a given domain name.
  
 .DESCRIPTION
-This tool make use of Googles search APIs to extract host and child domain names that are indexed in the Google searchengine database for a given parent domain. The module issues the initial query "site:example.com" and then appends any identified names (the left-most part of the FQDN in the search results) as exlusions in each subsequent search query. It does so until no new names are found.
+This tool make use of Google search APIs to extract hostnames that are indexed in the Google searchengine database for a given DNS domain. The module issues the initial query "site:example.com" and then appends any identified names (the left-most part of the FQDN in the search results) as exlusions in each subsequent search query. It does so until no new names are found.
 
 The tool supports the use of two Google APIs: Google Web Search (Native) and Google Custom Search (Custom). 
 
@@ -12,7 +12,7 @@ The Google Web Search API is the "old" search API and can be used without a API 
 
 The Google Custom Search is the search API currently supported by Google and requires an API key and a Search engine ID. The module issues a default query, providing a collection of 10 search results per query. The API key for Custom Search must be stored in the file "$NMEVars.HomeDir\config\google_apikey.txt" and the Engine ID in the file "$NMEVars.HomeDir\config\google_engineid.txt".
 
-The tool outputs objects with "Domain" and "HostName" information.
+The tool outputs objects with "Query" (domain name) and "HostName" information.
 
 .PARAMETER Domain
 The target domain, specified as a single FQDN. The tool also supports multiple domain names by means of DNSDomain objects coming through the pipeline.
@@ -24,10 +24,10 @@ The API(s) used for the query, supporting "Native" and/or "Custom". The default 
 Passes identified names to the Invoke-DNSQuery module, for hostname verification and for saving the results to the corresponding DNSDomain object.
 
 .EXAMPLE
-NME-HTTP-GoogleSubnames -Domain example.com
+NME-HTTP-GoogleHostnames -Domain example.com
 
 .EXAMPLE
-<Objects>| NME-HTTP-GoogleSubnames -API Custom,Native
+<Objects>| NME-HTTP-GoogleHostnames -API Custom,Native
 
 .NOTES
 
@@ -46,7 +46,7 @@ Google Custom Search API
 
 #>
 
-Function Invoke-GoogleSubnames
+Function Invoke-GoogleHostnames
 {
     Param
     (
@@ -65,8 +65,8 @@ Function Invoke-GoogleSubnames
     BEGIN
     {
         #Default functions/variables
-        $CmdName = 'Invoke-GoogleSubnames'
-        $CmdAlias = 'NME-HTTP-GoogleSubnames'
+        $CmdName = 'Invoke-GoogleHostnames'
+        $CmdAlias = 'NME-HTTP-GoogleHostnames'
         $Results = @()
 
         #Module-specific functions/variables
@@ -91,7 +91,7 @@ Function Invoke-GoogleSubnames
 
     PROCESS
     {
-        $subdomains = @()
+        $hostnames = @()
 
         if($Api.Contains('Native'))
         {
@@ -111,7 +111,7 @@ Function Invoke-GoogleSubnames
                     else #Parsing results
                     {
                         $fqdn = @(foreach ($i in $result.responseData.results){((($i.url) -split "/")[2])}) |Select -Unique #Exctacting subdomains/hostnames from query results
-                        $subdomains += @($fqdn)
+                        $hostnames += @($fqdn)
 
                         $equal = @(Compare-Object $fqdn $last -SyncWindow 0).Length -eq 0 #Checks if current results collection is identical to last
                                 
@@ -170,7 +170,7 @@ Function Invoke-GoogleSubnames
                         else #Parsing results
                         {
                             $fqdn = @(foreach ($i in $result.items){((($i.link) -split "/")[2])}) |Select -Unique #Exctacting subdomains/hostnames from query results
-                            $subdomains += @($fqdn)
+                            $hostnames += @($fqdn)
 
                             $equal = @(Compare-Object $fqdn $last -SyncWindow 0).Length -eq 0 #Checks if current results collection is identical to last
 
@@ -211,19 +211,19 @@ Function Invoke-GoogleSubnames
             }
         }
 
-        $subdomains = ($subdomains |?{$_ -ne $Domain})|select -Unique #Compiling list of unique hostnames, exluding the initial query domain
+        $hostnames = ($hostnames |?{$_ -ne $Domain})|select -Unique #Compiling list of unique hostnames, exluding the initial query domain
 
-        if($subdomains.Count -gt 0)
+        if($hostnames.Count -gt 0)
         {
-            $message = 'Subdomains/hostnames found'
+            $message = 'Hostnames found'
             LogEvent -source $Domain -command $CmdName -severity Succ -Event $message -ToFile -ToConsole
 
-            foreach($s in $subdomains)
+            foreach($s in $hostnames)
             {
                 $nameObj = New-Object psobject -Property @{
-                    Domain   = $Domain
+                    Query   = $Domain
                     HostName = $s
-                } |Select Domain,HostName
+                } |Select Query,HostName
 
                 $Results += $nameObj
             }
@@ -238,7 +238,7 @@ Function Invoke-GoogleSubnames
         }
         else
         {
-            $message = 'No subdomains/hostnames found'
+            $message = 'No hostnames found'
             LogEvent -source $Domain -command $CmdName -severity Info -Event $message -ToFile -ToConsole
         }
     }
