@@ -62,7 +62,7 @@ Function Invoke-DNSQuery
     Param
     (
         [Parameter(Mandatory, ValueFromPipelineByPropertyName)]
-        [Alias('IPAddress','DomainName','Name')]
+        [Alias('IPAddress','DomainName','HostName')]
         [string]$Target,
 
         [Parameter()]
@@ -83,8 +83,8 @@ Function Invoke-DNSQuery
     BEGIN
     {
         ## Default functions/variables
-        $CmdName = 'Get-SMBGroups'
-        $CmdAlias = 'NME-SMB-EnumGroups'
+        $CmdName = 'Invoke-DNSQuery'
+        $CmdAlias = 'NME-DNS-QueryDNS'
         $Results = [System.Collections.ArrayList]@()
 
         ## Script variables
@@ -289,7 +289,7 @@ Function Invoke-DNSQuery
 
                         if(! $domain.RecordExist($Target,$obj.type,$obj.data))
                         {
-                            $domain.Records.Add($obj)
+                            [void]($domain.Records.Add($obj))
                         }
                     }
 

@@ -153,7 +153,7 @@ Set-Alias NME-MSSQL-TestWindowsLogin Test-MSSQLWindowsLogin -Scope Global
 Set-Alias NME-WHOIS-QueryWHOIS Invoke-WHOISQuery -Scope Global
 Set-Alias NME-DNS-QueryDNS Invoke-DNSQuery -Scope Global
 #Set-Alias NME-HTTP-QueryBing Invoke-HTTPBingQuery -Scope Global
-#Set-Alias NME-HTTP-QueryGoogle Invoke-HTTPGoogleQuery -Scope Global
+Set-Alias NME-HTTP-GoogleSubnames Invoke-GoogleSubnames -Scope Global
 #Set-Alias NME-WMI-DumpCredentials Invoke-WMIDumpCredentials -Scope Global
 #Set-Alias NME-WMI-GetNetstat Invoke-WMINetstat -Scope Global
 
