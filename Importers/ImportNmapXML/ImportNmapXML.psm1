@@ -58,11 +58,11 @@ Function Import-NmapXML
 
         [Parameter()]
         [ValidateSet('Hosts','Services','Ports','All')]
-        [string[]]$ParseItems = ('All'),
+        [string[]]$ParseItems = 'All',
 
         [Parameter()]
         [ValidateSet('HTTP','SMBShare','MSSQL','All')]
-        [string[]]$ServiceType = ('All'),
+        [string[]]$ServiceType = 'All',
 
         [Parameter()]
         [switch]$ReplacePortData
@@ -142,6 +142,8 @@ Function Import-NmapXML
                 # HTTP parsing
                 if($ServiceType -contains 'HTTP' -or $ServiceType -contains 'All')
                 {
+                    Write-Verbose 'Parsing HTTP data from version scan'
+
                     $http = $host.ports.port|? {($_.service.name -match 'http.*') -and ($_.service.method -eq 'probed')}
 
                     foreach($i in $http)
@@ -161,13 +163,14 @@ Function Import-NmapXML
                     }
 
                     if($scriptCol.ContainsKey(''))
-                    {
-                    }
+                    { }
                 }
 
                 # MSSQL parsing
                 if($ServiceType -contains 'MSSQL' -or $ServiceType -contains 'All')
                 {
+                    Write-Verbose 'Parsing MSSQL data from version scan'
+
                     $mssql = $host.ports.port|? {($_.service.name -eq 'ms-sql-s') -and ($_.service.method -eq 'probed')}
 
                     foreach($i in $mssql)
@@ -179,6 +182,8 @@ Function Import-NmapXML
 
                     if($scriptCol.ContainsKey('ms-sql-info'))
                     {
+                        Write-Verbose 'Parsing MSSQL data from script "ms-sql-info"'
+
                         $data = $scriptCol["ms-sql-info"]
                         $array = $data -split '\[.*?\]' |Select-Object -Skip 1
 
@@ -207,6 +212,8 @@ Function Import-NmapXML
 
                     if($scriptCol.ContainsKey('broadcast-ms-sql-discover'))
                     {
+                        Write-Verbose 'Parsing MSSQL data from script "broadcast-ms-sql-discover"'
+
                         $data = $scriptCol['broadcast-ms-sql-discover']
                         $array = $data -split '\[.*?\]' |Select-Object -Skip 1
 
@@ -215,21 +222,29 @@ Function Import-NmapXML
                             $sqlport = ([regex]'(?<=TCP port: ).*?(?=&#)').Match($i).Value
                             $sqlpipe = ([regex]'(?<=Named pipe: ).*?(?=&#)').Match($i).Value
 
-                            if($sqlport)
+                            if($sqlport -or $sqlpipe)
                             {
-                                $mssqlObj = Get-MSSQLObject -HostIP $ip -TCPPort $sqlport
+                                if($sqlport -or $sqlpipe)
+                                {
+                                    $mssqlObj = Get-MSSQLObject -HostIP $ip -TCPPort $sqlport
+                                }
+                                else
+                                {
+                                    $mssqlObj = Get-MSSQLObject -HostIP $ip -NamedPipe $sqlpipe
+                                }
+
+                                $mssqlObj.TCPPort      = $sqlport
+                                $mssqlObj.NamedPipe    = $sqlpipe
+                                $mssqlObj.InstanceName = ([regex]'(?<=Name: ).*?(?=&#)').Match($i).Value
+                                $mssqlObj.IsClustered  = $null
+                                $mssqlObj.Version      = $null
+                                $mssqlObj.Product      = ([regex]'(?<=Product: ).*?(?=&#)').Match($i).Value
                             }
                             else
                             {
-                                $mssqlObj = Get-MSSQLObject -HostIP $ip -NamedPipe $sqlpipe
+                                $message = 'MSSQL object found that is not reachable over TCP or named pipes (skipping)'
+                                LogEvent -Command $CmdName -Severity Warn -Event $message -ToConsole
                             }
-
-                            $mssqlObj.TCPPort      = $sqlport
-                            $mssqlObj.NamedPipe    = $sqlpipe
-                            $mssqlObj.InstanceName = ([regex]'(?<=Name: ).*?(?=&#)').Match($i).Value
-                            $mssqlObj.IsClustered  = $null
-                            $mssqlObj.Version      = $null
-                            $mssqlObj.Product      = ([regex]'(?<=Product: ).*?(?=&#)').Match($i).Value
                         }
                     }
                 }
@@ -239,6 +254,8 @@ Function Import-NmapXML
                 {
                     if($scriptCol.ContainsKey('smb-enum-shares'))
                     {
+                        Write-Verbose 'Parsing SMB share data from script "smb-enum-shares"'
+
                         $data = $scriptCol['smb-enum-shares']
                         $array = $data -replace '    ' -split '&#xA;  ' |?{$_ -notmatch '<script id=' -and $_ -notmatch 'ERROR: Enumerating shares failed'}
 
