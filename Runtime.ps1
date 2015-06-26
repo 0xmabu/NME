@@ -118,8 +118,10 @@ Write-Host "Defining global object arrays"
 $Global:Networks      = [ordered]@{}
 $Global:Computers     = [ordered]@{}
 $Global:Services      = [ordered]@{
-    MSSQL     = @{}
-    SMBShares = @{}
+    HTTPServer      = @{}
+    HTTPVirtualHost = @{}
+    MSSQL           = @{}
+    SMBShares       = @{}
 }
 $Global:Applications  = [ordered]@{}
 $Global:DNSDomains    = [ordered]@{}
@@ -169,6 +171,8 @@ Set-Alias NME-GetSMBShare Get-SMBShareObject -Scope Global
 Set-Alias NME-GetDNSDomain Get-DNSDomainObject -Scope Global
 #Set-Alias NME-GetDNSRecord Get-DNSRecordObject -Scope Global
 Set-Alias NME-GetCredential Get-CredentialObject -Scope Global
+Set-Alias NME-GetHTTPServer Get-HTTPServerObject -Scope Global
+Set-Alias NME-GetHTTPVirtualHost Get-HTTPVirtualHostObject -Scope Global
 
 Write-Host 'Changing path to working directory'
 Set-Location $NMEVars.HomeDir
