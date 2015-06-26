@@ -9,28 +9,33 @@ This tool can be used to import data from nmap xml output. Based on the nmap xml
 .PARAMETER FilePath
 Specifies the path to the nmap xml log file to be parsed. The tool also accepts multiple files as FileInfo objects coming through the pipeline (see examples).
 
-.PARAMETER DataType
-Specifies one or multiple data types that should be imported. Options include: 
-- Hosts: Parses all hosts in the log and creates computer objects. Host-level data in the nmap xml, such as IP address, trace and state information, will also be imported into the computer object.
-- Ports: Parses the ports section of the nmap log and saves the data in the "Ports" property of the computer object
-- Services: Enables parsing of host- and port scripts (see Scripts parameter)
+.PARAMETER ParseItems
+Specifies one or multiple item types that should be imported. Options include: 
+- Hosts: Parses host-level data and creates Computer objects.
+- Services: Parses service-level data and creates Service objects (see ServiceTypes parameter for additional details)
+- Ports: Parses the entire ports section of the nmap log and saves the results to the "Ports" property of the Computer object
+- All: Parses all data. This is the default value.
 
-By default, the tool imports Hosts, Ports and Services data.
+.PARAMETER ServiceType
+Specifies one or multiple service types that should be parsed, including:
+- HTTP: Parses data related to HTTP/HTTPS services and creates HTTP server and HTTP virtual host objects
+- MSSQL: Parses data related to MSSQL server and creates MSSQL server objects
+- SMBShare: Parses data related to SMB file shares and creates SMB share objects
+- All: Parses all data. This is the default value.
 
-.PARAMETER Scripts
-Specifies the name of the host or port script (as named in nmap), whos data should be parsed. It also supports 'All' to include all supported scripts for parsing. This is the default.
+In order for the tool to parse service data, the nmap scan has to include a version scan (-sV).
 
-.PARAMETER Replace
-This switch parameter controls whether the tool should replace any existing data when parsing Ports data. By default, the tool will only import ports data if the port does not currently exists.
+.PARAMETER ReplacePortsData
+This switch forces the tool to replace any existing data when parsing ports items. By default, the tool will only import ports data if the port does not currently exist.
 
 .EXAMPLE
 NME-ImportNmapXML -FilePath c:\nmap-log.xml
 
 .EXAMPLE
-Get-Location c:\nmaplogs\*.xml| NME-ImportNmapXML -DataType PortData
+Get-Location c:\nmaplogs\*.xml| NME-ImportNmapXML -ParseItem Ports
 
 .EXAMPLE
-NME-ImportNmapXML -DataType ScriptData -Scripts ms-sql-info
+NME-ImportNmapXML -ParseItems Hosts,Services -ServiceType HTTP,MSSQL
 
 .NOTES
 
@@ -52,23 +57,21 @@ Function Import-NmapXML
         [string]$Filepath,
 
         [Parameter()]
-        [ValidateSet('Hosts','Ports','Services')]
-        [string[]]$Items = ('Hosts','Ports','Services'),
+        [ValidateSet('Hosts','Services','Ports','All')]
+        [string[]]$ParseItems = ('All'),
 
         [Parameter()]
-        [ValidateSet('ms-sql-info','broadcast-ms-sql-discover','smb-enum-shares','All')]
-        [string[]]$Scripts = ('All'),
+        [ValidateSet('HTTP','SMBShare','MSSQL','All')]
+        [string[]]$ServiceType = ('All'),
 
         [Parameter()]
-        [switch]$Replace
+        [switch]$ReplacePortData
     )
 
     BEGIN
     {
         $CmdName = 'Import-NmapXML'
         $CmdAlias = 'NME-ImportNmapXML'
-
-        $scriptName = $PSCmdlet.MyInvocation.MyCommand.Name
 
         $message = 'Starting Nmap data import'
         LogEvent -command $CmdName -severity Info -Event $message -ToConsole
@@ -83,11 +86,12 @@ Function Import-NmapXML
         foreach ($host in $nmapxml.nmaprun.host) #Iterates through each host
         {
             $ip = ($host.address|?{$_.addrtype -match 'ip'}).addr
-            $compObj = Get-ComputerObject -IP $ip
 
-            if($Items -contains 'Hosts')
+            if($ParseItems -contains 'Hosts' -or $ParseItems -contains 'All')
             {
                 Write-Verbose "Parsing host data ($ip)"
+                
+                $compObj = Get-ComputerObject -IP $ip
 
                 $StateObj = New-Object psobject -Property @{
                     State         = $host.status.state
@@ -116,98 +120,9 @@ Function Import-NmapXML
                 }
             }
 
-            if($Items -contains 'Ports')
+            if($ParseItems -contains 'Services' -or $ParseItems -contains 'All')
             {
-                Write-Verbose "Parsing host data ($ip)"
-
-                foreach($port in ($host.ports.port)) #Iterates through port node data
-                {
-                    if( !( $portObj = $compObj.Ports|?{($_.Protocol -eq $port.protocol) -and ($_.PortNumber -eq $Port.portid)} )) #Binds to existent port object, or creates and binds to new port object if none exist.
-                    {
-                        $portObj = New-Object psobject -Property @{
-                            Protocol    = $null
-                            PortNumber  = $null
-                            Socket      = $null
-                            Service     = $null
-                            State       = $null
-                        }
-
-                        $compObj.Ports += $portObj
-                    }
-
-                    if($Replace -or ($portObj.Protocol -eq $null)) #Inserts new data if object is new or $replace is enabled
-                    {
-                        $portObj.Protocol       = $port.protocol
-                        $portObj.PortNumber     = $port.portid
-                        $portObj.Socket         = "$($port.protocol)/$($port.portid)"
-                    }
-                    else
-                    {
-                        Write-Verbose 'Port object data exists (skipping)'
-                    }
-
-
-                    
-                    if( !($serviceObj = $portObj.Service)) #Binds to existent service object, or creates and binds to new port object if none exist.
-                    {
-                        $serviceObj = New-Object psobject -Property @{
-                            Name        = $null
-                            Product     = $null
-                            Version     = $null
-                            ExtraInfo   = $null
-                            Tunnel      = $null
-                            Method      = $null
-                            Conf        = $null
-                            Cpe         = @()
-                            Certificate = $null
-                        }
-
-                        $portObj.Service = $serviceObj
-                    }
-
-                    if($Replace -or ($serviceObj.Name -eq $null)) #Inserts new data if object is new or $replace is enabled
-                    {
-                        $serviceObj.Name      = $port.service.name
-                        $serviceObj.Product   = $port.service.product
-                        $serviceObj.Version   = $port.service.version
-                        $serviceObj.ExtraInfo = $port.service.extrainfo
-                        $serviceObj.Tunnel    = $port.service.tunnel
-                        $serviceObj.Method    = $port.service.method
-                        $serviceObj.Conf      = $port.service.conf
-                        $serviceObj.Cpe       = $port.service.cpe
-                    }
-                    else
-                    {
-                        Write-Verbose 'Port service object exists (skipping)'
-                    }
-
-                    if( !($stateObj = $portObj.State)) #Binds to existent service object, or creates and binds to new port object if none exist.
-                    {
-                        $stateObj = New-Object psobject -Property @{
-                            State      = $null
-                            Reason     = $null
-                            Reason_ttl = $null
-                        }
-
-                        $portObj.State = $stateObj
-                    }
-
-                    if($Replace -or ($stateObj.State -eq $null)) #Inserts new data if object is new or $replace is enabled
-                    {
-                        $stateObj.State      = $port.state.state 
-                        $stateObj.Reason     = $port.state.reason
-                        $stateObj.Reason_ttl = $port.state.reason_ttl
-                    }
-                    else
-                    {
-                        Write-Verbose 'Port state object exists (skipping)'
-                    }
-                }
-            }
-
-            if($Items -contains 'Services')
-            {
-                Write-Verbose "Parsing script data ($ip)"
+                Write-Verbose "Parsing service data ($ip)"
 
                 $scriptCol = @{}
 
@@ -224,12 +139,44 @@ Function Import-NmapXML
                     }
                 }
 
-                #################################
-                # Script-specific parsers below #
-                #################################
-
-                if($Scripts -contains 'ms-sql-info' -or $Scripts -contains 'All')
+                # HTTP parsing
+                if($ServiceType -contains 'HTTP' -or $ServiceType -contains 'All')
                 {
+                    $http = $host.ports.port|? {($_.service.name -match 'http.*') -and ($_.service.method -eq 'probed')}
+
+                    foreach($i in $http)
+                    {
+                        $httpObj = Get-HTTPServerObject -HostIP $ip -TCPPort $i.portid
+                        $httpObj.Product = $i.service.product
+                        $httpObj.Version = $i.service.version
+
+                        if($i.service.tunnel)
+                        {
+                            $httpObj.SecureChannel = $true
+                        }
+                        else
+                        {
+                            $httpObj.SecureChannel = $false
+                        }
+                    }
+
+                    if($scriptCol.ContainsKey(''))
+                    {
+                    }
+                }
+
+                # MSSQL parsing
+                if($ServiceType -contains 'MSSQL' -or $ServiceType -contains 'All')
+                {
+                    $mssql = $host.ports.port|? {($_.service.name -eq 'ms-sql-s') -and ($_.service.method -eq 'probed')}
+
+                    foreach($i in $mssql)
+                    {
+                        $mssqlObj = Get-MSSQLObject -HostIP $ip -TCPPort $i.portid
+                        $mssqlObj.Product = $i.service.product
+                        $mssqlObj.Version = $i.service.version
+                    }
+
                     if($scriptCol.ContainsKey('ms-sql-info'))
                     {
                         $data = $scriptCol["ms-sql-info"]
@@ -257,14 +204,7 @@ Function Import-NmapXML
                             $mssqlObj.Product      = ([regex]'(?<=Version: ).*?(?=&#)').Match($i).Value
                         }
                     }
-                    else
-                    {
-                        Write-Verbose "No script for $key found"
-                    }
-                }
 
-                if($Scripts -contains 'broadcast-ms-sql-discover' -or $Scripts -contains 'All')
-                {
                     if($scriptCol.ContainsKey('broadcast-ms-sql-discover'))
                     {
                         $data = $scriptCol['broadcast-ms-sql-discover']
@@ -292,13 +232,10 @@ Function Import-NmapXML
                             $mssqlObj.Product      = ([regex]'(?<=Product: ).*?(?=&#)').Match($i).Value
                         }
                     }
-                    else
-                    {
-                        Write-Verbose "No script for $key found"
-                    }
                 }
 
-                if($Scripts -contains 'smb-enum-shares' -or $Scripts -contains 'All')
+                #SMBShare parsing
+                if($ServiceType -contains 'SMBShares' -or $ServiceType -contains 'All')
                 {
                     if($scriptCol.ContainsKey('smb-enum-shares'))
                     {
@@ -317,9 +254,91 @@ Function Import-NmapXML
                             $shareObj.Permissions.AllowWrite = $null #To be fixed when I can test
                         }
                     }
+                }
+            }
+
+            if($ParseItems -contains 'Ports' -or $ParseItems -contains 'All')
+            {
+                Write-Verbose "Parsing host data ($ip)"
+
+                foreach($port in ($host.ports.port)) #Iterates through port node data
+                {
+                    if( !( $portObj = $compObj.Ports|?{($_.Protocol -eq $port.protocol) -and ($_.PortNumber -eq $Port.portid)} )) #Binds to existent port object, or creates and binds to new port object if none exist.
+                    {
+                        $portObj = New-Object psobject -Property @{
+                            Protocol    = $null
+                            PortNumber  = $null
+                            Socket      = $null
+                            Service     = $null
+                            State       = $null
+                        }
+
+                        $compObj.Ports += $portObj
+                    }
+
+                    if($ReplacePortData -or ($portObj.Protocol -eq $null)) #Inserts new data if object is new or $replace is enabled
+                    {
+                        $portObj.Protocol       = $port.protocol
+                        $portObj.PortNumber     = $port.portid
+                        $portObj.Socket         = "$($port.protocol)/$($port.portid)"
+                    }
                     else
                     {
-                        Write-Verbose "No script for $key found"
+                        Write-Verbose 'Port object data exists (skipping)'
+                    }
+
+                    if( !($serviceObj = $portObj.Service)) #Binds to existent service object, or creates and binds to new port object if none exist.
+                    {
+                        $serviceObj = New-Object psobject -Property @{
+                            Name        = $null
+                            Product     = $null
+                            Version     = $null
+                            ExtraInfo   = $null
+                            Tunnel      = $null
+                            Method      = $null
+                            Conf        = $null
+                            Cpe         = @()
+                        }
+
+                        $portObj.Service = $serviceObj
+                    }
+
+                    if($ReplacePortData -or ($serviceObj.Name -eq $null)) #Inserts new data if object is new or $replace is enabled
+                    {
+                        $serviceObj.Name      = $port.service.name
+                        $serviceObj.Product   = $port.service.product
+                        $serviceObj.Version   = $port.service.version
+                        $serviceObj.ExtraInfo = $port.service.extrainfo
+                        $serviceObj.Tunnel    = $port.service.tunnel
+                        $serviceObj.Method    = $port.service.method
+                        $serviceObj.Conf      = $port.service.conf
+                        $serviceObj.Cpe       = $port.service.cpe
+                    }
+                    else
+                    {
+                        Write-Verbose 'Port service object exists (skipping)'
+                    }
+
+                    if( !($stateObj = $portObj.State)) #Binds to existent service object, or creates and binds to new port object if none exist.
+                    {
+                        $stateObj = New-Object psobject -Property @{
+                            State      = $null
+                            Reason     = $null
+                            Reason_ttl = $null
+                        }
+
+                        $portObj.State = $stateObj
+                    }
+
+                    if($ReplacePortData -or ($stateObj.State -eq $null)) #Inserts new data if object is new or $replace is enabled
+                    {
+                        $stateObj.State      = $port.state.state 
+                        $stateObj.Reason     = $port.state.reason
+                        $stateObj.Reason_ttl = $port.state.reason_ttl
+                    }
+                    else
+                    {
+                        Write-Verbose 'Port state object exists (skipping)'
                     }
                 }
             }
@@ -331,6 +350,6 @@ Function Import-NmapXML
     END
     {
         $message = 'Nmap data import completed'
-        LogEvent -command $scriptName -severity Info -Event $message -ToConsole
+        LogEvent -command $CmdName -severity Info -Event $message -ToConsole
     }
 }
