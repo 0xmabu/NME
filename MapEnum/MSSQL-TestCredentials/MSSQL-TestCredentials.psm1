@@ -15,7 +15,7 @@ The IP address of the computer hosting the MSSQL database. The tool also support
 The TCP port on which the database service is listening. The tool also supports multiple TCP ports by means of MSSQL database objects coming through the pipeline.
 
 .PARAMETER NamedPipe
-The name of the named pipe on which the database service is listening. The tool also supports multiple named pipe names by means of MSSQL database objects coming through the pipeline.
+The UNC of the named pipe on which the database service is listening. The tool also supports multiple named pipe names by means of MSSQL database objects coming through the pipeline.
 
 .PARAMETER Username
 One or multiple usernames to be used for login attempts. This will prevent inclusion of logins stored in the "SQLLogins" property of the database object.
@@ -341,7 +341,7 @@ Function Test-MSSQLCredentials
             {
                 $MSSQLObject = Get-MSSQLObject -HostIP $HostIP -NamedPipe $NamedPipe -OnlyFromArray
                 $SvcId = $NamedPipe
-                $ConnectAddress = "np:"+$HostIP+","+$NamedPipe
+                $ConnectAddress = "np:"+$NamedPipe
             }
 
             if(! $MSSQLObject)
