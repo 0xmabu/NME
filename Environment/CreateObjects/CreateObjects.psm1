@@ -68,13 +68,13 @@ Function Get-NetworkObject
             if( !(IPHelper -ValidateCIDR -CIDR $CIDR))
             {
                 Write-Verbose 'Unable to create network object (CIDR invalid)'
-                Return $false
+                Return
             }
         }
         else
         {
             Write-Verbose 'Unable to create network object (CIDR invalid)'
-            Return $false
+            Return
         }
 
         $ip = $CIDR.Substring(0,$cidr.IndexOf('/'))
@@ -94,9 +94,9 @@ Function Get-NetworkObject
 
             $results = @()
 
-            foreach($i in $NMEObjects.Computers)
+            foreach($i in $NMEObjects.Computers.Values)
             {
-                if(IPHelper -IsMember -IPAddress $i.($this.Type) -CIDR $this.CIDR)
+                if(IPHelper -IsMember -IPAddress $i.IPAddress -CIDR $this.CIDR)
                 {
                     $results += $i
                 }
@@ -204,13 +204,11 @@ Function Get-ComputerObject
             Ports         = @()
             Users         = @()
             Groups        = @()
-            #Shares       = @()
-            #Databases    = @()
-            #Services     = @()
+            Services      = @()
             LoggedOn      = @()
             NetStat       = @()
             NetTrace      = @()
-        } |Select-Object IPAddress,HostName,OSType,OSVersion,State,Uptime,Policy,Users,Groups,LoggedOn,NetStat,NetTrace,Ports
+        } |Select-Object IPAddress,HostName,OSType,OSVersion,State,Uptime,Policy,Users,Groups,LoggedOn,NetStat,NetTrace,Ports,Services
 
         #Member function that returns all DNS names related to this IP address
         Add-Member -InputObject $CompObj -MemberType ScriptMethod -Name GetDNSNames {
@@ -236,9 +234,9 @@ Function Get-ComputerObject
 
             $forward = $NMEObjects.DNSDomains.Values.Records|?{$_.Data -eq $this.IPAddress}
 
-            foreach($r in $forward)
+            foreach($f in $forward)
             {
-                $names += recursive $r
+                $names += recursive $f
             }
 
             $reverse = $NMEObjects.DNSDomains.Values.Records|?{$_.Name -eq $this.IPAddress}
@@ -253,7 +251,7 @@ Function Get-ComputerObject
             return $names
         }
 
-        #Member function that returns all Services objects related to this IP address (accepting service type as param)
+        #Member function that returns all Service objects related to this IP address (accepting service type as param)
         Add-Member -InputObject $CompObj -MemberType ScriptMethod -Name GetServices {
             Param
             (
@@ -274,6 +272,18 @@ Function Get-ComputerObject
             return $result
         }
 
+        #Member function that returns the Network object to which this computer belongs
+        Add-Member -InputObject $CompObj -MemberType ScriptMethod -Name GetNetwork {
+
+            foreach($i in $NMEObjects.Networks.Values)
+            {
+                if(IPHelper -IsMember -IPAddress $this.IPAddress -CIDR $i.CIDR)
+                {
+                    return $i
+                }
+            }
+        }
+
         #Adding object to Computers array
         if(!$NotToArray)
         {
@@ -282,249 +292,6 @@ Function Get-ComputerObject
         }
 
         Return $CompObj
-    }
-
-    END
-    {}
-}
-
-<#
-.SYNOPSIS
-Function to obtain a new or existing MSSQL object.
-
-.DESCRIPTION
-This function can be called to create a "MSSQL object". It is used to represent a MSSQL Server service. Upon creation, the object is stored as a value in the Services.MSSQL hashtable, accessible as "<IP>:<TCPPort>" or "<IP>:<PIPE>". If the object already exists, the existing object is returned instead.
-
-.PARAMETER HostIP
-Specifies the IPv4 or IPv6 address of the computer hosting the service.
-
-.PARAMETER TCPPort
-Specifies the TCP port on which the service is listening.
-
-.PARAMETER NamedPipe
-Specifies the named pipe on which the service is listening (only the name of the pipe, not its full UNC path).
-
-.PARAMETER NotToArray
-Prevents the object from being added to the global objects array.
-
-.PARAMETER OnlyFromArray
-Forces the function to only return an existing object.
-
-.EXAMPLE
-NME-GetMSSQLServer -IP 192.168.1.10 -TCPPort 1433
-
-.EXAMPLE
-NME-GetMSSQLServer -IP 192.168.1.10 -NamedPipe sqlpipe
-
-.NOTES
-#>
-Function Get-MSSQLObject
-{
-    [CmdletBinding()]
-    Param
-    (
-        [Parameter(Mandatory)]
-        [string]$HostIP,
-
-        [Parameter(Mandatory, ParameterSetName='Port')]
-        [int]$TCPPort,
-
-        [Parameter(Mandatory, ParameterSetName='Pipe')]
-        [string]$NamedPipe,
-
-        [Parameter()]
-        [switch]$NotToArray,
-
-        [Parameter()]
-        [switch]$OnlyFromArray
-    )
-
-    BEGIN
-    {}
-
-    PROCESS
-    {
-        #Setting object key
-        if($TCPPort)
-        {
-            $Key = "$HostIP`:$TCPPort"
-        }
-        else
-        {
-            $Key = "$HostIP`:$PipeName"
-        }
-
-        #Checking if object already exists
-        if($NMEObjects.Services.MSSQL.Contains($Key))
-        {
-            Write-Verbose 'MSSQL object already exists (returning from array)'
-            return $NMEObjects.Services.MSSQL.$Key
-        }
-        else #Stops further processing if existing object is required
-        {
-            if($OnlyFromArray)
-            {
-                Write-Verbose 'MSSQL object does not exist (returning)'
-                return
-            }
-        }
-
-        #Validating params
-        if( !(IPHelper -ValidateIP -IPAddress $HostIP))
-        {
-            Write-Verbose 'Unable to create MSSQL object (IP address invalid)'
-            Return
-        }
-
-        if($TCPPort -and ($TCPPort -lt 1 -or $TCPPort -gt 65535))
-        {
-            Write-Verbose 'Unable to create MSSQL object (TCP port invalid)'
-            Return
-        }
-
-        #Creating MSSQL object
-        $MssqlObj = New-Object psobject -Property @{
-            HostIP       = $HostIP
-            Service      = 'MSSQL'
-            ServerName   = $null
-            TCPPort      = $TCPPort
-            NamedPipe    = $NamedPipe
-            InstanceName = $null
-            IsClustered  = $null
-            Version      = $null
-            Product      = $null
-            AuthMode     = $null
-            Databases    = [System.Collections.ArrayList]@()
-            SQLLogins    = [System.Collections.ArrayList]@()
-            Permissions  = @{AllowLogin = @()}
-        } |Select-Object HostIP,Service,ServerName,TCPPort,NamedPipe,InstanceName,Product,Version,IsClustered,AuthMode,Databases,SQLLogins,Permissions
-
-        Add-Member -InputObject $MssqlObj -MemberType ScriptMethod -Name GetValidCreds {
-
-            if($this.TCPPort)
-            {
-                $SvcId = $this.TCPPort
-            }
-            else
-            {
-                $SvcId = $this.NamedPipe
-            }
-
-            $result = $NMEObjects.Credentials|
-            ?{$_.HostIP -eq $this.HostIP}|
-            ?{$_.Service -eq $this.Service}|
-            ?{$_.SvcID -eq $SvcId}
-
-            return $result
-        }
-
-        #Adding object to Services hashtable
-        if(!$NotToArray)
-        {
-            [void]$NMEObjects.Services.MSSQL.Add($Key,$MssqlObj)
-            Write-Verbose 'Added MSSQL object to global array'
-        }
-
-        Return $MssqlObj
-    }
-
-    END
-    {}
-}
-
-<#
-.SYNOPSIS
-Function to obtain a new or existing SMB share object.
-
-.DESCRIPTION
-This function can be called to create a "SMB share object". It is used to represent a SMB share. Upon creation, the object is stored as a value in the Services.SMBShares hashtable, accessible as "<IP>:<ShareName>". If the object already exists, the existing object is returned instead.
-
-.PARAMETER HostIP
-Specifies the IPv4 or IPv6 address of the computer hosting the service.
-
-.PARAMETER ShareName
-Specifies the name of the share.
-
-.PARAMETER NotToArray
-Prevents the object from being added to the global objects array.
-
-.PARAMETER OnlyFromArray
-Forces the function to only return an existing object.
-
-.EXAMPLE
-NME-GetSMBShare -IP 192.168.1.10 -ShareName secret$
-
-.NOTES
-#>
-Function Get-SMBShareObject
-{
-    [CmdletBinding()]
-    Param
-    (
-        [Parameter(Mandatory)]
-        [string]$HostIP,
-
-        [Parameter(Mandatory)]
-        [string]$ShareName,
-
-        [Parameter()]
-        [switch]$NotToArray,
-
-        [Parameter()]
-        [switch]$OnlyFromArray
-    )
-
-    BEGIN
-    {}
-
-    PROCESS
-    {
-        #Setting object key
-        $Key = "$HostIP`:$ShareName"
-
-        #Checking if object already exists
-        if($NMEObjects.Services.SMBShares.Contains($Key))
-        {
-            Write-Verbose 'SMB share object already exists (returning from array)'
-            return $NMEObjects.Services.SMBShares.$Key
-        }
-
-        #Stops further processing if existing object is required
-        if($OnlyFromArray)
-        {
-            Write-Verbose 'SMB share object does not exist (returning)'
-            return
-        }
-
-        #Validating params
-        if( !(IPHelper -ValidateIP -IPAddress $HostIP))
-        {
-            Write-Verbose 'Unable to create SMB share object (IP address invalid)'
-            Return
-        }
-
-        #Creating SMB share object  
-        $ShareObj  = New-Object psobject -Property @{
-            HostIP      = $HostIP
-            Service     = "SMBShare"
-            ShareName   = $ShareName
-            Type        = $null
-            Remark      = $null
-            Size        = $null
-            #AllowMount  = $null
-            #AllowWrite  = $null
-            #GrepLog     = @()
-            #SearchLog   = @()
-            Permissions  = @{AllowRead = @(); AllowWrite = @()}
-        } |Select-Object HostIP,Service,ShareName,Type,Remark,Size,Permissions
-  
-        if(!$NotToArray)
-        {
-            [void]$NMEObjects.Services.SMBShares.Add($Key,$ShareObj)
-            Write-Verbose 'Added SMB share object to global array'
-        }
-
-        Return $ShareObj
     }
 
     END
@@ -607,7 +374,7 @@ Function Get-DNSDomainObject
             Records    = [System.Collections.ArrayList]@()
         } |Select-Object DomainName,Records,SOA,RIR
     
-        #Member function that returns an existing DNSRecord object, based on its name, type and data (supplied as params)
+        #Member function verifies the existance of a DNSRecord object, based on name, type and data (supplied as params)
         Add-Member -InputObject $DomainObj -MemberType ScriptMethod -Name RecordExist {
             Param
             (
@@ -639,93 +406,6 @@ Function Get-DNSDomainObject
     END
     {}
 }
-
-<#
-.SYNOPSIS
-Function to obtain a new or existing DNS record object.
-
-.DESCRIPTION
-This function can be called to create a "DNS record object". It is used to represent a DNS record in DNS. Upon creation, the object is stored as a value in the "DNSRecords" hashtable, accessible as "<ParentDomain>:<Type>:<Name>:<Data>". If the object already exists, the existing object is returned instead.
-
-.PARAMETER ParentDomain
-Specifies the fully-qualified domain name (FQDN) of the domain hosting the record. If this parameter is omitted, the parent will be set to the "orphan.nme" domain (created when the NME is initialized).
-
-.PARAMETER Type
-Specifies the type of record, where the valid options are A, AAAA, MX, NS, PTR, SOA, CNAME and Unknown. If this parameter is omitted, the type will be set to "Unknown".
-
-.PARAMETER Name
-Specifies the name of the target for which this record applies (for an A record, the hostname)
-
-.PARAMETER Data
-Specifies the data to which the "Name" information points (for an A record, the IP address)
-
-.PARAMETER NotToArray
-Prevents the object from being added to the global objects array.
-
-.EXAMPLE
-NME-GetDNSRecord -ParentDomain google.com -Type A -Name www -Data 64.233.161.105
-
-.EXAMPLE
-NME-GetDNSRecord -Name server01 -Type A -Data 192.168.56.20
-
-.NOTES
-#>
-<#Function Get-DNSRecordObject
-{
-    [CmdletBinding()]
-    Param
-    (
-        [Parameter()]
-        [string]$ParentDomain = 'orphan.nme',
-        
-        [Parameter()]
-        [ValidateSet('A','PTR','MX','NS','SOA','AAAA','CNAME','Unknown')]
-        [string]$Type = 'Unknown',
-        
-        [Parameter(Mandatory)]
-        [string]$Name,
-        
-        [Parameter(Mandatory)]
-        [string]$Data,
-        
-        [Parameter()]
-        [switch]$NotToArray
-    )
-
-    #Param validation
-    If( !$DNSDomains.Contains($ParentDomain) )
-    {
-        NME-GetDNSDomain -DomainName $ParentDomain
-        #Write-Verbose 'Unable to create DNSRecord object (parent domain does not exist)'
-        #Return
-    }
-
-    #Checking if object already exists
-    $key = "$ParentDomain`:$Type`:$Name`:$Data"
-
-    if($DNSRecords.Contains($key))
-    {
-        Write-Verbose 'Object already exists (returning from array)'
-        return $DNSRecords.$key
-    }
-
-    #Creating DNS record object
-    $RecordObj = New-Object psobject -Property @{
-        ParentDomain = $ParentDomain
-        Name         = $Name
-        Type         = $Type
-        Data         = $Data
-    } |Select-Object ParentDomain,Name,Type,Data
-
-    #Adding object to DNSRecords hashtable
-    if(!$NotToArray)
-    {
-        [void]$DNSRecords.Add($Key,$RecordObj)
-        Write-Verbose 'Added DNSRecord object to global array'
-    }
-
-    Return $RecordObj
-}#>
 
 <#
 .SYNOPSIS
@@ -799,9 +479,7 @@ Function Get-CredentialObject
             ?{$_.CredType -eq $CredType}|
             ?{$_.Username -eq $Username}
             #?{$_.HostIP -eq $HostIP}
-            
-            
-        
+                    
         if($ExistingObject)
         {
             Write-Verbose 'Credential object already exists (returning from array)'
@@ -837,6 +515,473 @@ Function Get-CredentialObject
         }
 
         Return $CredObj
+    }
+
+    END
+    {}
+}
+
+<#
+.SYNOPSIS
+Function to obtain a new or existing MSSQL object.
+
+.DESCRIPTION
+This function can be called to create a "MSSQL object". It is used to represent a MSSQL Server service. Upon creation, the object is stored as a value in the Services.MSSQL hashtable, accessible as "<IP>:<TCPPort>" or "<IP>:<PIPE>". If the object already exists, the existing object is returned instead.
+
+.PARAMETER HostIP
+Specifies the IPv4 or IPv6 address of the computer hosting the service.
+
+.PARAMETER TCPPort
+Specifies the TCP port on which the service is listening.
+
+.PARAMETER NamedPipe
+Specifies the named pipe on which the service is listening (only the name of the pipe, not its full UNC path).
+
+.PARAMETER NotToArray
+Prevents the object from being added to the global objects array.
+
+.PARAMETER OnlyFromArray
+Forces the function to only return an existing object.
+
+.EXAMPLE
+NME-GetMSSQLServer -HostIP 192.168.1.10 -TCPPort 1433
+
+.EXAMPLE
+NME-GetMSSQLServer -HostIP 192.168.1.10 -NamedPipe sqlpipe
+
+.NOTES
+#>
+Function Get-MSSQLObject
+{
+    [CmdletBinding()]
+    Param
+    (
+        [Parameter(Mandatory)]
+        [string]$HostIP,
+
+        [Parameter(Mandatory, ParameterSetName='Port')]
+        [int]$TCPPort,
+
+        [Parameter(Mandatory, ParameterSetName='Pipe')]
+        [string]$NamedPipe,
+
+        [Parameter()]
+        [switch]$NotToArray,
+
+        [Parameter()]
+        [switch]$OnlyFromArray
+    )
+
+    BEGIN
+    {}
+
+    PROCESS
+    {
+        #Setting object key
+        if($TCPPort)
+        {
+            $Key = "$HostIP`:$TCPPort"
+        }
+        else
+        {
+            $Key = "$HostIP`:$NamedPipe"
+        }
+
+        #Checking if object already exists
+        if($NMEObjects.Services.MSSQL.Contains($Key))
+        {
+            Write-Verbose 'MSSQL object already exists (returning from array)'
+            return $NMEObjects.Services.MSSQL.$Key
+        }
+        else #Stops further processing if existing object is required
+        {
+            if($OnlyFromArray)
+            {
+                Write-Verbose 'MSSQL object does not exist (returning)'
+                return
+            }
+        }
+
+        #Validating params
+        if( !(IPHelper -ValidateIP -IPAddress $HostIP))
+        {
+            Write-Verbose 'Unable to create MSSQL object (IP address invalid)'
+            Return
+        }
+
+        if($TCPPort -and ($TCPPort -lt 1 -or $TCPPort -gt 65535))
+        {
+            Write-Verbose 'Unable to create MSSQL object (TCP port invalid)'
+            Return
+        }
+
+        #Creating MSSQL object
+        $MssqlObj = New-Object psobject -Property @{
+            HostIP       = $HostIP
+            TCPPort      = $TCPPort
+            Service      = 'MSSQL'
+            ServerName   = $null
+            NamedPipe    = $NamedPipe
+            InstanceName = $null
+            IsClustered  = $null
+            Version      = $null
+            Product      = $null
+            AuthMode     = $null
+            Databases    = [System.Collections.ArrayList]@()
+            SQLLogins    = [System.Collections.ArrayList]@()
+            Permissions  = @{AllowLogin = @()}
+        } |Select-Object HostIP,TCPPort,Service,ServerName,NamedPipe,InstanceName,Product,Version,IsClustered,AuthMode,Databases,SQLLogins,Permissions
+
+        #Member function that returns all credential objects valid for this service
+        Add-Member -InputObject $MssqlObj -MemberType ScriptMethod -Name GetValidCreds {
+
+            if($this.TCPPort)
+            {
+                $SvcId = $this.TCPPort
+            }
+            else
+            {
+                $SvcId = $this.NamedPipe
+            }
+
+            $result = $NMEObjects.Credentials|
+            ?{$_.HostIP -eq $this.HostIP}|
+            ?{$_.Service -eq $this.Service}|
+            ?{$_.SvcID -eq $SvcId}
+
+            return $result
+        }
+
+        #Adding object to Services hashtable
+        if(!$NotToArray)
+        {
+            [void]$NMEObjects.Services.MSSQL.Add($Key,$MssqlObj)
+            Write-Verbose 'Added MSSQL object to global array'
+        }
+
+        Return $MssqlObj
+    }
+
+    END
+    {}
+}
+
+<#
+.SYNOPSIS
+Function to obtain a new or existing SMB share object.
+
+.DESCRIPTION
+This function can be called to create a "SMB share object". It is used to represent a SMB share. Upon creation, the object is stored as a value in the Services.SMBShares hashtable, accessible as "<IP>:<ShareName>". If the object already exists, the existing object is returned instead.
+
+.PARAMETER HostIP
+Specifies the IPv4 or IPv6 address of the computer hosting the service.
+
+.PARAMETER ShareName
+Specifies the name of the share.
+
+.PARAMETER NotToArray
+Prevents the object from being added to the global objects array.
+
+.PARAMETER OnlyFromArray
+Forces the function to only return an existing object.
+
+.EXAMPLE
+NME-GetSMBShare -HostIP 192.168.1.10 -ShareName secret$
+
+.NOTES
+#>
+Function Get-SMBShareObject
+{
+    [CmdletBinding()]
+    Param
+    (
+        [Parameter(Mandatory)]
+        [string]$HostIP,
+
+        [Parameter(Mandatory)]
+        [string]$ShareName,
+
+        [Parameter()]
+        [switch]$NotToArray,
+
+        [Parameter()]
+        [switch]$OnlyFromArray
+    )
+
+    BEGIN
+    {}
+
+    PROCESS
+    {
+        #Setting object key
+        $Key = "$HostIP`:$ShareName"
+
+        #Checking if object already exists
+        if($NMEObjects.Services.SMBShares.Contains($Key))
+        {
+            Write-Verbose 'SMB share object already exists (returning from array)'
+            return $NMEObjects.Services.SMBShares.$Key
+        }
+
+        #Stops further processing if existing object is required
+        if($OnlyFromArray)
+        {
+            Write-Verbose 'SMB share object does not exist (returning)'
+            return
+        }
+
+        #Validating params
+        if( !(IPHelper -ValidateIP -IPAddress $HostIP))
+        {
+            Write-Verbose 'Unable to create SMB share object (IP address invalid)'
+            Return
+        }
+
+        #Creating SMB share object  
+        $ShareObj  = New-Object psobject -Property @{
+            HostIP      = $HostIP
+            Service     = 'SMBShare'
+            ShareName   = $ShareName
+            Type        = $null
+            Remark      = $null
+            Size        = $null
+            #AllowMount  = $null
+            #AllowWrite  = $null
+            #GrepLog     = @()
+            #SearchLog   = @()
+            Permissions  = @{AllowRead = @(); AllowWrite = @()}
+        } |Select-Object HostIP,Service,ShareName,Type,Remark,Size,Permissions
+  
+        if(!$NotToArray)
+        {
+            [void]$NMEObjects.Services.SMBShares.Add($Key,$ShareObj)
+            Write-Verbose 'Added SMB share object to global array'
+        }
+
+        Return $ShareObj
+    }
+
+    END
+    {}
+}
+
+<#
+.SYNOPSIS
+Function to obtain a new or existing HTTP server object.
+
+.DESCRIPTION
+This function can be called to create a "HTTP server object". It is used to represent a HTTP server service. Upon creation, the object is stored as a value in the Services.HTTP hashtable, accessible as "<IP>:<Port>". If the object already exists, the existing object is returned instead.
+
+.PARAMETER HostIP
+Specifies the IPv4 or IPv6 address of the computer hosting the service.
+
+.PARAMETER TCPPort
+Specifies the TCP port on which the service is listening.
+
+.PARAMETER NotToArray
+Prevents the object from being added to the global objects array.
+
+.PARAMETER OnlyFromArray
+Forces the function to only return an existing object.
+
+.EXAMPLE
+NME-GetHTTPServer -HostIP 192.168.1.10 -TCPPort 80
+
+.NOTES
+#>
+Function Get-HTTPServerObject
+{
+    [CmdletBinding()]
+    Param
+    (
+        [Parameter(Mandatory)]
+        [string]$HostIP,
+
+        [Parameter(Mandatory)]
+        [int]$TCPPort,
+
+        [Parameter()]
+        [switch]$NotToArray,
+
+        [Parameter()]
+        [switch]$OnlyFromArray
+    )
+
+    BEGIN
+    {}
+
+    PROCESS
+    {
+        #Setting object key
+        $Key = "$HostIP`:$TCPPort"
+
+        #Checking if object already exists
+        if($NMEObjects.Services.HTTPServer.Contains($Key))
+        {
+            Write-Verbose 'HTTP server object already exists (returning from array)'
+            return $NMEObjects.Services.HTTPServer.$Key
+        }
+        else #Stops further processing if existing object is required
+        {
+            if($OnlyFromArray)
+            {
+                Write-Verbose 'HTTP server object does not exist (returning)'
+                return
+            }
+        }
+
+        #Validating params
+        if( !(IPHelper -ValidateIP -IPAddress $HostIP))
+        {
+            Write-Verbose 'Unable to create HTTP server object (IP address invalid)'
+            Return
+        }
+
+        if($TCPPort -lt 1 -or $TCPPort -gt 65535)
+        {
+            Write-Verbose 'Unable to create HTTP server object (TCP port invalid)'
+            Return
+        }
+
+        #Creating HTTP server object
+        $HttpObj = New-Object psobject -Property @{
+            HostIP        = $HostIP
+            TCPPort       = $TCPPort
+            Service       = 'HTTPServer'
+            Product       = $null
+            Version       = $null
+            SecureChannel = $null
+            HttpAuth      = $null
+            HttpMethods   = $null
+            Instances     = @{}
+        } |Select-Object HostIP,TCPPort,Service,Product,Version,SecureChannel,HttpAuth,HttpMethods,Instances
+
+        #Member function that returns all HTTP virtual host objects related to this HTTP server
+        Add-Member -InputObject $HttpObj -MemberType ScriptMethod -Name GetVirtualHosts {
+
+            $result = ($NMEObjects.Services.HTTPVirtualHost.GetEnumerator()|
+                ?{$_.Key -match "$($this.HostIP)`:$($this.TCPPort)"}).value
+
+            return $result
+        }
+
+        #Adding object to Services hashtable
+        if(!$NotToArray)
+        {
+            [void]$NMEObjects.Services.HTTPServer.Add($Key,$HttpObj)
+            Write-Verbose 'Added HTTP server object to global array'
+        }
+
+        Return $HttpObj
+    }
+
+    END
+    {}
+}
+
+<#
+.SYNOPSIS
+Function to obtain a new or existing HTTP virtual host object.
+
+.DESCRIPTION
+This function can be called to create a "HTTP virtual host object". It is used to represent a virtual host in a HTTP server. Upon creation, the object is stored in the Instance property of a HTTPServerObject in the $Services.HTTP hashtable, accesible as "<IP>:<Port>:<URL>". If the object already exists, the existing object is returned instead.
+
+.PARAMETER HostIP
+Specifies the IPv4 or IPv6 address of the computer hosting the service.
+
+.PARAMETER TCPPort
+Specifies the TCP port on which the hosting service is listening.
+
+.PARAMETER URL
+Specifies the URL of the virtual host.
+
+.PARAMETER NotToArray
+Prevents the object from being added to the global objects array.
+
+.PARAMETER OnlyFromArray
+Forces the function to only return an existing object.
+
+.EXAMPLE
+NME-GetHTTPVirtualHost -HostIP 192.168.1.10 -TCPPort 80 -URL application.example.com
+
+.NOTES
+#>
+Function Get-HTTPVirtualHostObject
+{
+    [CmdletBinding()]
+    Param
+    (
+        [Parameter(Mandatory)]
+        [string]$HostIP,
+
+        [Parameter(Mandatory)]
+        [int]$TCPPort,
+
+        [Parameter(Mandatory)]
+        [string]$URL,
+
+        [Parameter()]
+        [switch]$NotToArray,
+
+        [Parameter()]
+        [switch]$OnlyFromArray
+    )
+
+    BEGIN
+    {}
+
+    PROCESS
+    {
+        #Setting object key
+        $Key = "$HostIP`:$TCPPort`:$URL"
+
+        #Checking if object already exists
+        if($NMEObjects.Services.HTTPVirtualHost.Contains($Key))
+        {
+            Write-Verbose 'HTTP virtual host object already exists (returning from array)'
+            return $NMEObjects.Services.HTTPVirtualHost.$Key
+        }
+        else #Stops further processing if existing object is required
+        {
+            if($OnlyFromArray)
+            {
+                Write-Verbose 'HTTP virtual host object does not exist (returning)'
+                return
+            }
+        }
+
+        #Validating params
+        if( !(IPHelper -ValidateIP -IPAddress $HostIP))
+        {
+            Write-Verbose 'Unable to create HTTP virtual host object (IP address invalid)'
+            Return
+        }
+
+        if($TCPPort -lt 1 -or $TCPPort -gt 65535)
+        {
+            Write-Verbose 'Unable to create HTTP virtual host object (TCP port invalid)'
+            Return
+        }
+
+        #Creating HTTP virtual host object
+        $HttpVhostObj = New-Object psobject -Property @{
+            HostIP       = $HostIP
+            TCPPort      = $TCPPort
+            Service      = 'HTTPVirtualHost'
+            URL          = $URL
+            HttpTitle    = $null
+            HttpResponse = $null
+            StartPage    = $null
+        } |Select-Object HostIP,TCPPort,Service,URL,HttpTitle,HttpResponse,StartPage
+
+        #Adding object to Services hashtable
+        if(!$NotToArray)
+        {
+            [void]$NMEObjects.Services.HTTPVirtualHost.Add($Key,$HttpVhostObj)
+            Write-Verbose 'Added HTTP virtual host object to global array'
+        }
+
+        Return $HttpVhostObj
     }
 
     END
