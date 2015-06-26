@@ -52,21 +52,21 @@ Function Import-NessusXML
         [string]$FilePath,
 
         [Parameter()]
-        [ValidateSet('Hosts','Ports','Services')]
-        [string[]]$Items = ('Hosts','Ports','Services'),
+        [ValidateSet('Hosts','Services','Ports','All')]
+        [string[]]$ParseItems = 'All',
 
         [Parameter()]
-        [ValidateSet('MSSQL','SMBShares')]
-        [string[]]$Services = ('All'),
+        [ValidateSet('HTTP','SMBShare','MSSQL','All')]
+        [string[]]$ServiceType = 'All',
 
         [Parameter()]
-        [switch]$Replace
+        [switch]$ReplacePortData
     )
 
     BEGIN
     {
-        $CmdName = 'Import-NmapXML'
-        $CmdAlias = 'NME-ImportNmapXML'
+        $CmdName = 'Import-NessusXML'
+        $CmdAlias = 'NME-ImportNessusXML'
 
         $message = 'Starting Nessus data import'
         LogEvent -command $CmdName -severity Info -event $message -ToConsole
@@ -81,11 +81,12 @@ Function Import-NessusXML
         foreach($host in $nessusxml.NessusClientData_v2.Report.ReportHost) #Iterates through each host
         {
             $ip = ($host.HostProperties.tag|?{$_.name -eq 'host-ip'}).'#text'
-            $compObj = Get-ComputerObject -IP $ip
 
-            if($Items -contains 'Hosts')
+            if($ParseItems -contains 'Hosts' -or $ParseItems -contains 'All')
             {
                 Write-Verbose "Parsing host data ($ip)"
+
+                $compObj = Get-ComputerObject -IP $ip
 
                 $StateObj = New-Object psobject -Property @{
                     State         = 'Up' #Assuming all data in results are live hosts
@@ -116,90 +117,42 @@ Function Import-NessusXML
                     $compObj.NetTrace += @($traceArray)
                 }
             }
-
-            if($Items -contains 'Ports')
-            {
-                Write-Verbose "Parsing port data ($ip)"
-
-                $openPorts = $host.ReportItem|?{$_.pluginID -eq '11219' -or $_.pluginID -eq '10335' -or  $_.pluginID -eq '34277'} #Captures all ports from Nessus SYN, TCP and UDP scans.
-                
-                foreach($port in $openPorts) #Iterates through each port item
-                {
-                    if( !( $portObj = $compObj.Ports|?{($_.Protocol -eq $port.protocol) -and ($_.PortNumber -eq $Port.port)} )) #Binds to existent port object, or creates and binds to new port object if none exist.
-                    {
-                        $portObj = New-Object psobject -Property @{
-                            Protocol    = $null
-                            PortNumber  = $null
-                            Socket      = $null
-                            Service     = $null
-                            State       = $null
-                        }
-
-                        $compObj.Ports += $portObj
-                    }
-
-                    if($Replace -or ($portObj.Protocol -eq $null)) #Inserts new data if object is new or $replace is enabled
-                    {
-                        $portObj.Protocol       = $port.protocol
-                        $portObj.PortNumber     = $port.port
-                        $portObj.Socket         = "$($port.protocol)/$($port.port)"
-                    }
-                    else
-                    {
-                        Write-Verbose "Port object data exists (skipping)"
-                    }
-
-                    if( !($serviceObj = $portObj.Service)) #Binds to existent service object, or creates and binds to new port object if none exist.
-                    {
-                        $serviceObj = New-Object psobject -Property @{
-                            Name        = $null
-                            Product     = $null
-                            Tunnel      = $null
-                        }
-
-                        $portObj.Service = $serviceObj
-                    }
-
-                    if($Replace -or ($serviceObj.Name -eq $null)) #Inserts new data if object is new or $replace is enabled
-                    {
-                        $serviceObj.Name      = $port.svc_name
-                    }
-                    else
-                    {
-                        Write-Verbose "Port service object exists (skipping)"
-                    }
-
-                    if( !($stateObj = $portObj.State)) #Binds to existent service object, or creates and binds to new port object if none exist.
-                    {
-                        $stateObj = New-Object psobject -Property @{
-                            State      = $null
-                            Reason     = $null
-                            Reason_ttl = $null
-                        }
-
-                        $portObj.State = $stateObj
-                    }
-
-                    if($Replace -or ($stateObj.State -eq $null)) #Inserts new data if object is new or $replace is enabled
-                    {
-                        $stateObj.State = 'up'
-                    }
-                    else
-                    {
-                        Write-Verbose "Port state object exists (skipping)"
-                    }
-                }
-            }
             
-            if($Items -contains 'Services')
+            if($ParseItems -contains 'Services' -or $ParseItems -contains 'All')
             {
                 Write-Verbose "Parsing service data ($ip)"
 
-                ##################################
-                # Service-specific parsers below #
-                ##################################
+                # HTTP parsing
+                if($ServiceType -contains 'HTTP' -or $ServiceType -contains 'All')
+                {
+                    Write-Verbose 'Parsing HTTP data from plugin 22964'
 
-                if($Services -contains 'MSSQL' -or $Services -contains 'All')
+                    $http = $host.ReportItem|?{($_.pluginID -eq '22964') -and ($_.plugin_output -match 'A web server is running on this port')}
+
+                    foreach($i in $http)
+                    {
+                        $httpObj = Get-HTTPServerObject -HostIP $ip -TCPPort $i.port
+                        
+                        $version = $host.ReportItem|?{$_.pluginID -eq '10107' -and $_.port -eq $i.port}
+                        
+                        if($version)
+                        {
+                            $httpObj.Product = ($version.plugin_output -split '\n')[2]
+                        }
+
+                        if($i.plugin_output -match "A web server is running on this port through") #'through' keyword indicate that nessus has identified SSL/TLS support for the service
+                        {
+                            $httpObj.SecureChannel = $true
+                        }
+                        else
+                        {
+                            $httpObj.SecureChannel = $false
+                        }
+                    }
+                }
+
+                #MSSQL parsing
+                if($ServiceType -contains 'MSSQL' -or $ServiceType -contains 'All')
                 {
                     $mssql = $host.ReportItem|?{($_.pluginID -eq '10144') -or ($_.pluginID -eq '10674')}
 
@@ -229,46 +182,56 @@ Function Import-NessusXML
                         {
                             Write-Verbose 'Parsing MSSQL data from plugin 10674'
 
-                            $count = ([regex]'(?<=ServerName   : ).*').Matches($item.plugin_output).Value.count #Determining number of items in results data
+                            $array = (([regex]'(?s)(?<=  ).*?(?=\n\n)').matches($item.plugin_output).Value) #Extracting each instance as a string and storing in array
 
-                            for ($i = 1; $i -le $count; $i++)
+                            foreach($i in $array)
                             {
-                                $sqlport = ((([regex]'(?<=tcp          : ).*').Matches($item.plugin_output).Value) -as [array])[$i-1]
-                                $sqlpipe = ((([regex]'(?<=np           : ).*').Matches($item.plugin_output).Value) -as [array])[$i-1]
+                                $sqlport = ([regex]'(?<=tcp          : ).*').Matches($i).value
+                                $sqlpipe = ([regex]'(?<=np           : ).*').Matches($i).value
 
-                                if($sqlport)
+                                if($sqlport -or $sqlpipe)
                                 {
-                                    $mssqlObj = Get-MSSQLObject -HostIP $ip -TCPPort $sqlport
+                                    if($sqlport)
+                                    {
+                                        $mssqlObj = Get-MSSQLObject -HostIP $ip -TCPPort $sqlport
+                                    }
+                                    else
+                                    {
+                                        $mssqlObj = Get-MSSQLObject -HostIP $ip -TCPPort $sqlpipe
+                                    }
+
+                                    $mssqlObj.TCPPort      = $sqlport
+                                    $mssqlObj.NamedPipe    = $sqlpipe
+                                    $mssqlObj.InstanceName = ([regex]'(?<=InstanceName : ).*').Matches($i).value
+                                    $mssqlObj.Version      = ([regex]'(?<=Version      : ).*').Matches($i).value
+                                    $mssqlObj.IsClustered  = ([regex]'(?<=IsClustered  : ).*').Matches($i).value
+                                    $mssqlObj.ServerName   = ([regex]'(?<=ServerName   : ).*').Matches($i).value
+
+                                    switch ($mssqlObj.version)
+                                    {
+                                        {$_ -match '^7\.0'}  {$mssqlObj.Product = 'Microsoft SQL Server 7.0'; break}
+                                        {$_ -match '^8\.0'}  {$mssqlObj.Product = 'Microsoft SQL Server 2000'; break}
+                                        {$_ -match '^9\.0'}  {$mssqlObj.Product = 'Microsoft SQL Server 2005'; break}
+                                        {$_ -match '^10\.0'} {$mssqlObj.Product = 'Microsoft SQL Server 2008'; break}
+                                        {$_ -match '^10\.5'} {$mssqlObj.Product = 'Microsoft SQL Server 2008 R2'; break}
+                                        {$_ -match '^11\.0'} {$mssqlObj.Product = 'Microsoft SQL Server 2012'; break}
+                                        {$_ -match '^12\.0'} {$mssqlObj.Product = 'Microsoft SQL Server 2014'; break}
+                                        Default {}
+                                    }
                                 }
                                 else
                                 {
-                                    $mssqlObj = Get-MSSQLObject -HostIP $ip -NamedPipe $sqlpipe
+                                    $message = 'MSSQL object found that is not reachable over TCP or named pipes (skipping)'
+                                    LogEvent -Command $CmdName -Severity Warn -Event $message -ToConsole
                                 }
 
-                                $mssqlObj.TCPPort      = $sqlport
-                                $mssqlObj.NamedPipe    = $sqlpipe
-                                $mssqlObj.InstanceName = ((([regex]'(?<=InstanceName : ).*').Matches($item.plugin_output).Value) -as [array])[$i-1]
-                                $mssqlObj.Version      = ((([regex]'(?<=Version      : ).*').Matches($item.plugin_output).Value) -as [array])[$i-1]
-                                $mssqlObj.IsClustered  = ((([regex]'(?<=IsClustered  : ).*').Matches($item.plugin_output).Value) -as [array])[$i-1]
-                                $mssqlObj.ServerName   = ((([regex]'(?<=ServerName   : ).*').Matches($item.plugin_output).Value) -as [array])[$i-1]
-
-                                switch ($mssqlObj.version)
-                                {
-                                    {$_ -match '^7\.0'}  {$mssqlObj.Product = 'Microsoft SQL Server 7.0'; break}
-                                    {$_ -match '^8\.0'}  {$mssqlObj.Product = 'Microsoft SQL Server 2000'; break}
-                                    {$_ -match '^9\.0'}  {$mssqlObj.Product = 'Microsoft SQL Server 2005'; break}
-                                    {$_ -match '^10\.0'} {$mssqlObj.Product = 'Microsoft SQL Server 2008'; break}
-                                    {$_ -match '^10\.5'} {$mssqlObj.Product = 'Microsoft SQL Server 2008 R2'; break}
-                                    {$_ -match '^11\.0'} {$mssqlObj.Product = 'Microsoft SQL Server 2012'; break}
-                                    {$_ -match '^12\.0'} {$mssqlObj.Product = 'Microsoft SQL Server 2014'; break}
-                                    Default {}
-                                }
                             }
                         }
                     }
                 }
 
-                if($Services -contains 'SMBShares' -or $Services -contains 'All')
+                #SMB parsing
+                if($ServiceType -contains 'SMBShares' -or $ServiceType -contains 'All')
                 {
                     $plugins = $host.ReportItem|?{($_.pluginID -eq '10395') -or ($_.pluginID -eq '42411')} |Sort-Object -Property pluginID #Sorting so that 10395 is processed first (needed to get a full listing of shares prior to procesing of 42411)
 
@@ -318,6 +281,80 @@ Function Import-NessusXML
                         }
                     }
                 }            
+            }
+
+            if($ParseItems -contains 'Ports' -or $ParseItems -contains 'All')
+            {
+                Write-Verbose "Parsing port data ($ip)"
+
+                $openPorts = $host.ReportItem|?{$_.pluginID -eq '11219' -or $_.pluginID -eq '10335' -or  $_.pluginID -eq '34277'} #Captures all ports from Nessus SYN, TCP and UDP scans.
+                
+                foreach($port in $openPorts) #Iterates through each port item
+                {
+                    if( !( $portObj = $compObj.Ports|?{($_.Protocol -eq $port.protocol) -and ($_.PortNumber -eq $Port.port)} )) #Binds to existent port object, or creates and binds to new port object if none exist.
+                    {
+                        $portObj = New-Object psobject -Property @{
+                            Protocol    = $null
+                            PortNumber  = $null
+                            Socket      = $null
+                            Service     = $null
+                            State       = $null
+                        }
+
+                        $compObj.Ports += $portObj
+                    }
+
+                    if($ReplacePortData -or ($portObj.Protocol -eq $null)) #Inserts new data if object is new or $replace is enabled
+                    {
+                        $portObj.Protocol       = $port.protocol
+                        $portObj.PortNumber     = $port.port
+                        $portObj.Socket         = "$($port.protocol)/$($port.port)"
+                    }
+                    else
+                    {
+                        Write-Verbose "Port object data exists (skipping)"
+                    }
+
+                    if( !($serviceObj = $portObj.Service)) #Binds to existent service object, or creates and binds to new port object if none exist.
+                    {
+                        $serviceObj = New-Object psobject -Property @{
+                            Name        = $null
+                            Product     = $null
+                            Tunnel      = $null
+                        }
+
+                        $portObj.Service = $serviceObj
+                    }
+
+                    if($ReplacePortData -or ($serviceObj.Name -eq $null)) #Inserts new data if object is new or $replace is enabled
+                    {
+                        $serviceObj.Name      = $port.svc_name
+                    }
+                    else
+                    {
+                        Write-Verbose "Port service object exists (skipping)"
+                    }
+
+                    if( !($stateObj = $portObj.State)) #Binds to existent service object, or creates and binds to new port object if none exist.
+                    {
+                        $stateObj = New-Object psobject -Property @{
+                            State      = $null
+                            Reason     = $null
+                            Reason_ttl = $null
+                        }
+
+                        $portObj.State = $stateObj
+                    }
+
+                    if($ReplacePortData -or ($stateObj.State -eq $null)) #Inserts new data if object is new or $replace is enabled
+                    {
+                        $stateObj.State = 'up'
+                    }
+                    else
+                    {
+                        Write-Verbose "Port state object exists (skipping)"
+                    }
+                }
             }
         }
 
