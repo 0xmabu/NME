@@ -394,9 +394,11 @@ Function Get-MSSQLServers
                 LogEvent -source $Target -command $CmdName -severity Info -Event $message -ToFile -ToConsole
             }
 
-            if($Results) #Verifies or creates a host computer object if services are found
+            if($MssqlObj) #Verifies or creates a host computer object if services are found
             {
                 Get-ComputerObject -IP $target |Out-Null
+
+                $MssqlObj = $null
             }
 
             if($ShowProgress)
