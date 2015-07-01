@@ -20,8 +20,8 @@ The TCP port to query. The default value is 1433.
 .PARAMETER UDP
 Enables UDP as querying protocol.
 
-.PARAMETER TCPPort
-The TCP port to query. The default value is 1434.
+.PARAMETER UDPPort
+The UDP port to query. The default value is 1434.
 
 .PARAMETER Timeout
 The time, in seconds, that the command wait for a response. The default value is 3.
