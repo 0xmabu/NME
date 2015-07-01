@@ -269,6 +269,9 @@ Function IPHelper
         [Parameter(Mandatory,ParameterSetName = 'IsMember')]
         [switch]$IsMember,
 
+        [Parameter(Mandatory,ParameterSetName = 'ListMembers')]
+        [switch]$ListMembers,
+
         [Parameter(Mandatory,ParameterSetName = 'ValidateCIDR')]
         [switch]$ValidateCIDR,
 
@@ -277,6 +280,7 @@ Function IPHelper
 
         [Parameter(Mandatory,ParameterSetName = 'CIDRToRange')]
         [Parameter(Mandatory,ParameterSetName = 'IsMember')]
+        [Parameter(Mandatory,ParameterSetName = 'ListMembers')]
         [Parameter(Mandatory,ParameterSetName = 'ValidateCIDR')]
         [string]$CIDR,
 
@@ -444,6 +448,54 @@ Function IPHelper
         {
             return $false
         }
+    }
+
+    if($ListMembers)
+    {
+        function recursive($bits)
+        {
+            if($bits -le 0)
+            {
+                Return $($bitsarray -join '')
+            }
+            else
+            {
+                $bitsarray[$bits -1] = 0
+                recursive($bits -1)
+
+                $bitsarray[$bits -1] = 1
+                recursive($bits -1)
+            }
+        }
+        
+        $netip = ($CIDR -split '/')[0]
+        $netmask = ($CIDR -split '/')[1]
+
+        if(($netip -as [ipaddress]).AddressFamily -eq 'InterNetwork')
+        {
+            $hostbitnum = 32-$netmask
+        }
+        else
+        {
+            $hostbitnum = 128-$netmask
+        }
+
+        $netbin = IPtoBinary $netip
+        $netbits = $netbin.Substring(0,$netmask)
+        $bitsarray = New-Object int[] $hostbitnum
+
+        $hosts = recursive($hostbitnum)
+        
+        $computers = @()
+
+        foreach($i in $hosts)
+        {
+            $ipbits = $netbits + $i
+
+            $computers += (BinaryToIP $ipbits)
+        }
+
+        return $computers
     }
 
     if($ValidateCIDR)
