@@ -106,6 +106,21 @@ Function Get-NetworkObject
 
         } #Function that returns all Computer objects part of the network
 
+        Add-Member -InputObject $netObj -MemberType ScriptMethod -Name GetPotentialComputers {
+
+            $results = @()
+
+            $members = IPHelper -ListMembers -CIDR $this.CIDR
+
+            foreach($i in $members)
+            {
+                $results += Get-ComputerObject -IP $i -NotToArray
+            }
+
+            return $results
+
+        } #Function that returns a Computer object for each potential member of the network
+
         #Adding object to Networks hashtable
         if(!$NotToArray)
         {
