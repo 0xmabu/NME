@@ -155,6 +155,7 @@ Set-Alias NME-WHOIS-QueryWHOIS Invoke-WHOISQuery -Scope Global
 Set-Alias NME-DNS-QueryDNS Invoke-DNSQuery -Scope Global
 Set-Alias NME-HTTP-BingHostnames Invoke-BingHostnames -Scope Global
 Set-Alias NME-HTTP-GoogleHostnames Invoke-GoogleHostnames -Scope Global
+Set-Alias NME-HTTP-EnumServices Get-HTTPServers -Scope Global
 #Set-Alias NME-WMI-DumpCredentials Invoke-WMIDumpCredentials -Scope Global
 #Set-Alias NME-WMI-GetNetstat Invoke-WMINetstat -Scope Global
 
