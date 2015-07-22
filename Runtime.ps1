@@ -159,6 +159,9 @@ Set-Alias NME-HTTP-EnumServices Get-HTTPServers -Scope Global
 #Set-Alias NME-WMI-DumpCredentials Invoke-WMIDumpCredentials -Scope Global
 #Set-Alias NME-WMI-GetNetstat Invoke-WMINetstat -Scope Global
 
+Set-Alias NME-InvokeNmap Invoke-Nmap -Scope Global
+Set-Alias nmap Invoke-Nmap -Scope Global
+
 Set-Alias NME-ImportNmapXML Import-NmapXML -Scope Global
 Set-Alias NME-ImportNessusXML Import-NessusXML -Scope Global
 Set-Alias NME-BackupObjects Backup-Objects -Scope Global
