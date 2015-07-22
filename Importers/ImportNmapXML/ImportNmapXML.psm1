@@ -25,6 +25,9 @@ Specifies one or multiple service types that should be parsed, including:
 
 In order for the tool to parse service data, the nmap scan has to include a version scan (-sV).
 
+.PARAMETER ParseClosedPorts
+This switch forces the tool to create port objects for ports that are closed. By default, the tool will only create port objects if the port is open.
+
 .PARAMETER ReplacePortsData
 This switch forces the tool to replace any existing data when parsing ports items. By default, the tool will only import ports data if the port does not currently exist.
 
@@ -57,8 +60,11 @@ Function Import-NmapXML
         [string]$Filepath,
 
         [Parameter()]
-        [ValidateSet('Hosts','Services','Ports','All')]
+        [ValidateSet('Ports','Services','All')]
         [string[]]$ParseItems = 'All',
+
+        [Parameter()]
+        [switch]$ParseClosedPorts,
 
         [Parameter()]
         [ValidateSet('HTTP','SMBShare','MSSQL','All')]
@@ -85,10 +91,10 @@ Function Import-NmapXML
 
         foreach ($host in $nmapxml.nmaprun.host) #Iterates through each host
         {
-            $ip = ($host.address|?{$_.addrtype -match 'ip'}).addr
-
-            if($ParseItems -contains 'Hosts' -or $ParseItems -contains 'All')
+            if( ($host.status.state -eq 'up' -and $host.status.reason -ne 'user-set') -or ( $host.ports.port.state.state -contains 'open' -or $host.ports.port.state.state -contains 'closed' )) #Determining if host is live
             {
+                $ip = ($host.address|?{$_.addrtype -match 'ip'}).addr
+
                 Write-Verbose "Parsing host data ($ip)"
                 
                 $compObj = Get-ComputerObject -IP $ip
@@ -118,70 +124,66 @@ Function Import-NmapXML
                         $compObj.NetTrace += @($traceObj)
                     }
                 }
-            }
 
-            if($ParseItems -contains 'Services' -or $ParseItems -contains 'All')
-            {
-                Write-Verbose "Parsing service data ($ip)"
-
-                $scriptCol = @{}
-
-                foreach ($script in ($host.hostscript.script)) #Extracts host script data
+                if($ParseItems -contains 'Services' -or $ParseItems -contains 'All')
                 {
-                    $scriptCol += @{$script.id = $script.OuterXml}
-                }
+                    Write-Verbose "Parsing service data ($ip)"
 
-                foreach($port in ($host.ports.port)) #Extracts port script data
-                {
-                    foreach ($script in $port.script)
+                    $scriptCol = @{}
+
+                    foreach ($script in ($host.hostscript.script)) #Extracts host script data
                     {
                         $scriptCol += @{$script.id = $script.OuterXml}
                     }
-                }
 
-                # HTTP parsing
-                if($ServiceType -contains 'HTTP' -or $ServiceType -contains 'All')
-                {
-                    Write-Verbose 'Parsing HTTP data from version scan'
-
-                    $http = $host.ports.port|? {($_.service.name -match 'http.*') -and ($_.service.method -eq 'probed')}
-
-                    foreach($i in $http)
+                    foreach($port in ($host.ports.port)) #Extracts port script data
                     {
-                        $httpObj = Get-HTTPServerObject -HostIP $ip -TCPPort $i.portid
-                        $httpObj.Product = $i.service.product
-                        $httpObj.Version = $i.service.version
-
-                        if($i.service.tunnel)
+                        foreach ($script in $port.script)
                         {
-                            $httpObj.SecureChannel = $true
-                        }
-                        else
-                        {
-                            $httpObj.SecureChannel = $false
+                            $scriptCol += @{$script.id = $script.OuterXml}
                         }
                     }
 
-                    if($scriptCol.ContainsKey(''))
-                    { }
-                }
-
-                # MSSQL parsing
-                if($ServiceType -contains 'MSSQL' -or $ServiceType -contains 'All')
-                {
-                    Write-Verbose 'Parsing MSSQL data from version scan'
-
-                    $mssql = $host.ports.port|? {($_.service.name -eq 'ms-sql-s') -and ($_.service.method -eq 'probed')}
-
-                    foreach($i in $mssql)
+                    # HTTP parsing
+                    if($ServiceType -contains 'HTTP' -or $ServiceType -contains 'All')
                     {
-                        $mssqlObj = Get-MSSQLObject -HostIP $ip -TCPPort $i.portid
-                        $mssqlObj.Product = $i.service.product
-                        $mssqlObj.Version = $i.service.version
+                        Write-Verbose 'Parsing HTTP data from version scan'
+
+                        $http = $host.ports.port|? {($_.service.name -match 'http.*') -and ($_.service.method -eq 'probed')}
+
+                        foreach($i in $http)
+                        {
+                            $httpObj = Get-HTTPServerObject -HostIP $ip -TCPPort $i.portid
+                            $httpObj.Product = $i.service.product
+                            $httpObj.Version = $i.service.version
+
+                            if($i.service.tunnel)
+                            {
+                                $httpObj.SecureChannel = $true
+                            }
+                            else
+                            {
+                                $httpObj.SecureChannel = $false
+                            }
+                        }
                     }
 
-                    if($scriptCol.ContainsKey('ms-sql-info'))
+                    # MSSQL parsing
+                    if($ServiceType -contains 'MSSQL' -or $ServiceType -contains 'All')
                     {
+                        Write-Verbose 'Parsing MSSQL data from version scan'
+
+                        $mssql = $host.ports.port|? {($_.service.name -eq 'ms-sql-s') -and ($_.service.method -eq 'probed')}
+
+                        foreach($i in $mssql)
+                        {
+                            $mssqlObj = Get-MSSQLObject -HostIP $ip -TCPPort $i.portid
+                            $mssqlObj.Product = $i.service.product
+                            $mssqlObj.Version = $i.service.version
+                        }
+
+                        if($scriptCol.ContainsKey('ms-sql-info'))
+                                                                                                                    {
                         Write-Verbose 'Parsing MSSQL data from script "ms-sql-info"'
 
                         $data = $scriptCol["ms-sql-info"]
@@ -210,8 +212,8 @@ Function Import-NmapXML
                         }
                     }
 
-                    if($scriptCol.ContainsKey('broadcast-ms-sql-discover'))
-                    {
+                        if($scriptCol.ContainsKey('broadcast-ms-sql-discover'))
+                                                                                                                                                    {
                         Write-Verbose 'Parsing MSSQL data from script "broadcast-ms-sql-discover"'
 
                         $data = $scriptCol['broadcast-ms-sql-discover']
@@ -247,115 +249,119 @@ Function Import-NmapXML
                             }
                         }
                     }
-                }
+                    }
 
-                #SMBShare parsing
-                if($ServiceType -contains 'SMBShares' -or $ServiceType -contains 'All')
-                {
-                    if($scriptCol.ContainsKey('smb-enum-shares'))
+                    #SMBShare parsing
+                    if($ServiceType -contains 'SMBShares' -or $ServiceType -contains 'All')
                     {
-                        Write-Verbose 'Parsing SMB share data from script "smb-enum-shares"'
-
-                        $data = $scriptCol['smb-enum-shares']
-                        $array = $data -replace '    ' -split '&#xA;  ' |?{$_ -notmatch '<script id=' -and $_ -notmatch 'ERROR: Enumerating shares failed'}
-
-                        foreach($i in $array)
+                        if($scriptCol.ContainsKey('smb-enum-shares'))
                         {
-                            $sharename = ([regex]'.*(?=&#xA;)').Match($i).Value
+                            Write-Verbose 'Parsing SMB share data from script "smb-enum-shares"'
 
-                            $shareObj = Get-SMBShareObject -HostIP $ip -ShareName $sharename
+                            $data = $scriptCol['smb-enum-shares']
+                            $array = $data -replace '    ' -split '&#xA;  ' |?{$_ -notmatch '<script id=' -and $_ -notmatch 'ERROR: Enumerating shares failed'}
 
-                            $shareObj.Type       = ([regex]'(?<=&#xA;Type: ).*?(?=&#xA;').Matches($i).Value
-                            $shareObj.Remark     = ([regex]'(?<=&#xA;Comment: ).*?(?=&#xA;').Matches($i).Value
-                            $shareObj.Permissions.AllowRead = $null #To be fixed when I can test
-                            $shareObj.Permissions.AllowWrite = $null #To be fixed when I can test
+                            foreach($i in $array)
+                            {
+                                $sharename = ([regex]'.*(?=&#xA;)').Match($i).Value
+
+                                $shareObj = Get-SMBShareObject -HostIP $ip -ShareName $sharename
+
+                                $shareObj.Type       = ([regex]'(?<=&#xA;Type: ).*?(?=&#xA;').Matches($i).Value
+                                $shareObj.Remark     = ([regex]'(?<=&#xA;Comment: ).*?(?=&#xA;').Matches($i).Value
+                                $shareObj.Permissions.AllowRead = $null #To be fixed when I can test
+                                $shareObj.Permissions.AllowWrite = $null #To be fixed when I can test
+                            }
                         }
                     }
                 }
-            }
 
-            if($ParseItems -contains 'Ports' -or $ParseItems -contains 'All')
-            {
-                Write-Verbose "Parsing host data ($ip)"
-
-                foreach($port in ($host.ports.port)) #Iterates through port node data
+                if($ParseItems -contains 'Ports' -or $ParseItems -contains 'All')
                 {
-                    if( !( $portObj = $compObj.Ports|?{($_.Protocol -eq $port.protocol) -and ($_.PortNumber -eq $Port.portid)} )) #Binds to existent port object, or creates and binds to new port object if none exist.
+                    Write-Verbose "Parsing port data ($ip)"
+
+                    foreach($port in ($host.ports.port)) #Iterates through port node data
                     {
-                        $portObj = New-Object psobject -Property @{
-                            Protocol    = $null
-                            PortNumber  = $null
-                            Socket      = $null
-                            Service     = $null
-                            State       = $null
+                        if($port.state.state -eq 'open' -or ($ParseClosedPorts -and $port.state.state -eq 'closed'))
+                        {
+                            if( !( $portObj = $compObj.Ports|?{($_.Protocol -eq $port.protocol) -and ($_.PortNumber -eq $Port.portid)} )) #Binds to existent port object, or creates and binds to new port object if none exist.
+                            {
+                                $portObj = New-Object psobject -Property @{
+                                    Protocol    = $null
+                                    PortNumber  = $null
+                                    Socket      = $null
+                                    Service     = $null
+                                    State       = $null
+                                }
+
+                                $compObj.Ports += $portObj
+                            }
+
+                            if($ReplacePortData -or ($portObj.Protocol -eq $null)) #Inserts new data if object is new or $replace is enabled
+                            {
+                                $portObj.Protocol       = $port.protocol
+                                $portObj.PortNumber     = $port.portid
+                                $portObj.Socket         = "$($port.protocol)/$($port.portid)"
+                            }
+                            else
+                            {
+                                Write-Verbose 'Port object data exists (skipping)'
+                            }
+
+                            if( !($serviceObj = $portObj.Service)) #Binds to existent service object, or creates and binds to new port object if none exist.
+                            {
+                                $serviceObj = New-Object psobject -Property @{
+                                    Name        = $null
+                                    Product     = $null
+                                    Version     = $null
+                                    ExtraInfo   = $null
+                                    Tunnel      = $null
+                                    Method      = $null
+                                    Conf        = $null
+                                    Cpe         = @()
+                                }
+
+                                $portObj.Service = $serviceObj
+                            }
+
+                            if($ReplacePortData -or ($serviceObj.Name -eq $null)) #Inserts new data if object is new or $replace is enabled
+                            {
+                                $serviceObj.Name      = $port.service.name
+                                $serviceObj.Product   = $port.service.product
+                                $serviceObj.Version   = $port.service.version
+                                $serviceObj.ExtraInfo = $port.service.extrainfo
+                                $serviceObj.Tunnel    = $port.service.tunnel
+                                $serviceObj.Method    = $port.service.method
+                                $serviceObj.Conf      = $port.service.conf
+                                $serviceObj.Cpe       = $port.service.cpe
+                            }
+                            else
+                            {
+                                Write-Verbose 'Port service object exists (skipping)'
+                            }
+
+                            if( !($stateObj = $portObj.State)) #Binds to existent service object, or creates and binds to new port object if none exist.
+                            {
+                                $stateObj = New-Object psobject -Property @{
+                                    State      = $null
+                                    Reason     = $null
+                                    Reason_ttl = $null
+                                }
+
+                                $portObj.State = $stateObj
+                            }
+
+                            if($ReplacePortData -or ($stateObj.State -eq $null)) #Inserts new data if object is new or $replace is enabled
+                            {
+                                $stateObj.State      = $port.state.state 
+                                $stateObj.Reason     = $port.state.reason
+                                $stateObj.Reason_ttl = $port.state.reason_ttl
+                            }
+                            else
+                            {
+                                Write-Verbose 'Port state object exists (skipping)'
+                            }
                         }
-
-                        $compObj.Ports += $portObj
-                    }
-
-                    if($ReplacePortData -or ($portObj.Protocol -eq $null)) #Inserts new data if object is new or $replace is enabled
-                    {
-                        $portObj.Protocol       = $port.protocol
-                        $portObj.PortNumber     = $port.portid
-                        $portObj.Socket         = "$($port.protocol)/$($port.portid)"
-                    }
-                    else
-                    {
-                        Write-Verbose 'Port object data exists (skipping)'
-                    }
-
-                    if( !($serviceObj = $portObj.Service)) #Binds to existent service object, or creates and binds to new port object if none exist.
-                    {
-                        $serviceObj = New-Object psobject -Property @{
-                            Name        = $null
-                            Product     = $null
-                            Version     = $null
-                            ExtraInfo   = $null
-                            Tunnel      = $null
-                            Method      = $null
-                            Conf        = $null
-                            Cpe         = @()
-                        }
-
-                        $portObj.Service = $serviceObj
-                    }
-
-                    if($ReplacePortData -or ($serviceObj.Name -eq $null)) #Inserts new data if object is new or $replace is enabled
-                    {
-                        $serviceObj.Name      = $port.service.name
-                        $serviceObj.Product   = $port.service.product
-                        $serviceObj.Version   = $port.service.version
-                        $serviceObj.ExtraInfo = $port.service.extrainfo
-                        $serviceObj.Tunnel    = $port.service.tunnel
-                        $serviceObj.Method    = $port.service.method
-                        $serviceObj.Conf      = $port.service.conf
-                        $serviceObj.Cpe       = $port.service.cpe
-                    }
-                    else
-                    {
-                        Write-Verbose 'Port service object exists (skipping)'
-                    }
-
-                    if( !($stateObj = $portObj.State)) #Binds to existent service object, or creates and binds to new port object if none exist.
-                    {
-                        $stateObj = New-Object psobject -Property @{
-                            State      = $null
-                            Reason     = $null
-                            Reason_ttl = $null
-                        }
-
-                        $portObj.State = $stateObj
-                    }
-
-                    if($ReplacePortData -or ($stateObj.State -eq $null)) #Inserts new data if object is new or $replace is enabled
-                    {
-                        $stateObj.State      = $port.state.state 
-                        $stateObj.Reason     = $port.state.reason
-                        $stateObj.Reason_ttl = $port.state.reason_ttl
-                    }
-                    else
-                    {
-                        Write-Verbose 'Port state object exists (skipping)'
                     }
                 }
             }
