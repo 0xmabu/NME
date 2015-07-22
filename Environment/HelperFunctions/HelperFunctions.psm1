@@ -81,7 +81,7 @@ Function LogEvent
 
     if($ToFile)
     {
-        (Get-Date -Format G) + (echo `t) + $Source + (echo `t) + $Command + (echo `t) + $Severity + (echo `t) + $Event |Out-File -Append "$NMEDir\activity.log"
+        (Get-Date -Format G) + (echo `t) + $Source + (echo `t) + $Command + (echo `t) + $Severity + (echo `t) + $Event |Out-File -Append "$($NMEVars.HomeDir)\activity.log"
     }
 
     if($ToConsole)
