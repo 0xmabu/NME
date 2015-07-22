@@ -245,7 +245,7 @@ Function Get-HTTPServers
                 }
                 catch
                 {
-                    $event = "Unable to resolve target `'$Target`'"
+                    $message = "Unable to resolve target `'$Target`'"
                     LogEvent -Command $CmdName -Severity Err -Event $message -ToFile -ToConsole
 
                     return
