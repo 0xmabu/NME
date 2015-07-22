@@ -1378,6 +1378,13 @@ $IP4_ARRAY = struct $Mod IP4_ARRAY @{
     AddrArray = field 1 Uint32[]
 }
 
+$RECT = struct $Mod RECT @{
+    Left   = field 0 UInt32
+    Top    = field 1 UInt32
+    Right  = field 2 UInt32
+    Bottom = field 3 UInt32
+}
+
 
 ### Win32 API functions
 
@@ -1406,6 +1413,10 @@ $FunctionDefinitions = @(
     #(func dnsapi DnsQuery ([int]) @([string], [QueryTypes], [QueryOptions], [int], [IntPtr].MakeByRefType(), [int]))
     (func dnsapi DnsQuery ([int]) @([string], [int], [uint32], [IP4_ARRAY].MakeByRefType(), [IntPtr].MakeByRefType(), [int]) -SetLastError -Charset Unicode -EntryPoint DnsQuery_W -ExactSpelling)
     (func dnsapi DnsRecordListFree ([int]) @([IntPtr], [int]) -SetLastError)
+    (func user32 GetForegroundWindow ([int]) @())
+    (func user32 SetForegroundWindow ([int]) @([IntPtr]))
+    (func user32 GetWindowRect ([int]) @([IntPtr], [RECT].MakeByRefType()))
+    #(func Gdi BitBlt ([int]) @([IntPtr]))
 )
 
 $Types = $FunctionDefinitions | Add-Win32Type -Module $Mod -Namespace 'Win32'
@@ -1413,3 +1424,5 @@ $Global:Netapi32 = $Types['netapi32']
 $Global:Advapi32 = $Types['advapi32']
 $Global:Kernel32 = $Types['kernel32']
 $Global:Dnsapi   = $Types['dnsapi']
+$Global:User32   = $Types['user32']
+#$Global:Gdi      = $Types['Gdi']
