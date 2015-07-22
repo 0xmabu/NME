@@ -933,7 +933,7 @@ Function Get-HTTPVirtualHostObject
         [int]$TCPPort,
 
         [Parameter(Mandatory)]
-        [string]$URL,
+        [string]$HostHeader,
 
         [Parameter()]
         [switch]$NotToArray,
@@ -948,7 +948,7 @@ Function Get-HTTPVirtualHostObject
     PROCESS
     {
         #Setting object key
-        $Key = "$HostIP`:$TCPPort`:$URL"
+        $Key = "$HostIP`:$TCPPort`:$HostHeader"
 
         #Checking if object already exists
         if($NMEObjects.Services.HTTPVirtualHost.Contains($Key))
@@ -983,11 +983,11 @@ Function Get-HTTPVirtualHostObject
             HostIP       = $HostIP
             TCPPort      = $TCPPort
             Service      = 'HTTPVirtualHost'
-            URL          = $URL
+            HostHeader   = $HostHeader
             HttpTitle    = $null
             HttpResponse = $null
             StartPage    = $null
-        } |Select-Object HostIP,TCPPort,Service,URL,HttpTitle,HttpResponse,StartPage
+        } |Select-Object HostIP,TCPPort,Service,HostHeader,HttpResponse,HttpTitle,StartPage
 
         #Adding object to Services hashtable
         if(!$NotToArray)
