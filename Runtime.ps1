@@ -118,10 +118,9 @@ Write-Host "Defining global object arrays"
 $Global:Networks      = [ordered]@{}
 $Global:Computers     = [ordered]@{}
 $Global:Services      = [ordered]@{
-    HTTPServer      = @{}
-    HTTPVirtualHost = @{}
-    MSSQL           = @{}
-    SMBShares       = @{}
+    HTTP      = @{Servers = @{}; Instances = @{}}
+    MSSQL     = @{Servers = @{}; Databases = @{}}
+    SMB       = @{Servers = @{}; Shares = @{}}
 }
 $Global:Applications  = [ordered]@{}
 $Global:DNSDomains    = [ordered]@{}
@@ -140,6 +139,7 @@ $Global:NMEObjects = @{
 
 Write-Host 'Configuring aliases'
 Set-Alias NME-NET-TestState Test-NETState -Scope Global
+Set-Alias query Test-NETState -Scope Global
 Set-Alias NME-SMB-EnumUsers Get-SMBUsers -Scope Global
 Set-Alias NME-SMB-EnumShares Get-SMBShares -Scope Global
 Set-Alias NME-SMB-EnumAccountPolicy Get-SMBAccountPolicy -Scope Global
@@ -152,10 +152,15 @@ Set-Alias NME-MSSQL-EnumServices Get-MSSQLServers -Scope Global
 Set-Alias NME-MSSQL-TestCredentials Test-MSSQLCredentials -Scope Global
 Set-Alias NME-MSSQL-TestWindowsLogin Test-MSSQLWindowsLogin -Scope Global
 Set-Alias NME-WHOIS-QueryWHOIS Invoke-WHOISQuery -Scope Global
+Set-Alias whois Invoke-WHOISQuery -Scope Global
 Set-Alias NME-DNS-QueryDNS Invoke-DNSQuery -Scope Global
+Set-Alias resolve Invoke-DNSQuery -Scope Global
 Set-Alias NME-HTTP-BingHostnames Invoke-BingHostnames -Scope Global
+Set-Alias bing Invoke-BingHostnames -Scope Global
 Set-Alias NME-HTTP-GoogleHostnames Invoke-GoogleHostnames -Scope Global
+Set-Alias google Invoke-GoogleHostname -Scope Global
 Set-Alias NME-HTTP-EnumServices Get-HTTPServers -Scope Global
+Set-Alias NME-HTTP-EnumServiceInstances Get-HTTPServerInstances -Scope Global
 #Set-Alias NME-WMI-DumpCredentials Invoke-WMIDumpCredentials -Scope Global
 #Set-Alias NME-WMI-GetNetstat Invoke-WMINetstat -Scope Global
 
@@ -165,18 +170,20 @@ Set-Alias nmap Invoke-Nmap -Scope Global
 Set-Alias NME-ImportNmapXML Import-NmapXML -Scope Global
 Set-Alias NME-ImportNessusXML Import-NessusXML -Scope Global
 Set-Alias NME-BackupObjects Backup-Objects -Scope Global
+Set-Alias backup Backup-Objects -Scope Global
 Set-Alias NME-RestoreObjects Restore-Objects -Scope Global
+Set-Alias restore Restore-Objects -Scope Global
 Set-Alias NME-ImpersonateUser Invoke-UserImpersonation -Scope Global
+Set-Alias impersonate Invoke-UserImpersonation -Scope Global
 #Set-Alias NME-ViewData Show-Objects -Scope Global
 Set-Alias NME-GetNetwork Get-NetworkObject -Scope Global
 Set-Alias NME-GetComputer Get-ComputerObject -Scope Global
 Set-Alias NME-GetMSSQLServer Get-MSSQLObject -Scope Global
 Set-Alias NME-GetSMBShare Get-SMBShareObject -Scope Global
 Set-Alias NME-GetDNSDomain Get-DNSDomainObject -Scope Global
-#Set-Alias NME-GetDNSRecord Get-DNSRecordObject -Scope Global
 Set-Alias NME-GetCredential Get-CredentialObject -Scope Global
 Set-Alias NME-GetHTTPServer Get-HTTPServerObject -Scope Global
-Set-Alias NME-GetHTTPVirtualHost Get-HTTPVirtualHostObject -Scope Global
+Set-Alias NME-GetHTTPServerInstance Get-HTTPServerInstanceObject -Scope Global
 
 Write-Host 'Changing path to working directory'
 Set-Location $NMEVars.HomeDir

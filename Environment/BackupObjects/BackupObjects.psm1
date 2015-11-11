@@ -105,12 +105,12 @@ Function Backup-Objects
         #Building backup command based on Objects parameter input
         switch ($Objects)
         {
-            {$_ -contains 'Networks'}    {$command = [scriptblock]::Create($command.ToString() + "`n" + "Export-Clixml -Path $FolderPath\networks.xml -InputObject `$NMEObjects.Networks -Depth 10")}
-            {$_ -contains 'Computers'}   {$command = [scriptblock]::Create($command.ToString() + "`n" + "Export-Clixml -Path $FolderPath\computers.xml -InputObject `$NMEObjects.Computers -Depth 10")}
-            {$_ -contains 'Services'}    {$command = [scriptblock]::Create($command.ToString() + "`n" + "Export-Clixml -Path $FolderPath\services.xml -InputObject `$NMEObjects.Services -Depth 10")}
-            {$_ -contains 'DNSDomains'}  {$command = [scriptblock]::Create($command.ToString() + "`n" + "Export-Clixml -Path $FolderPath\dnsdomains.xml -InputObject `$NMEObjects.DNSDomains -Depth 10")}
-            {$_ -contains 'Credentials'} {$command = [scriptblock]::Create($command.ToString() + "`n" + "Export-Clixml -Path $FolderPath\credentials.xml -InputObject `$NMEObjects.Credentials -Depth 10")}
-            {$_ -contains 'All'}         {$command = [scriptblock]::Create($command.ToString() + "`n" + "Export-Clixml -Path $FolderPath\nmeobjects.xml -InputObject `$NMEObjects -Depth 10")}
+            {$_ -contains 'Networks' -or $_ -contains 'All'}    {$command = [scriptblock]::Create($command.ToString() + "`n" + "Export-Clixml -Path $FolderPath\networks.xml -InputObject `$NMEObjects.Networks -Depth 10")}
+            {$_ -contains 'Computers' -or $_ -contains 'All'}   {$command = [scriptblock]::Create($command.ToString() + "`n" + "Export-Clixml -Path $FolderPath\computers.xml -InputObject `$NMEObjects.Computers -Depth 10")}
+            {$_ -contains 'Services' -or $_ -contains 'All'}    {$command = [scriptblock]::Create($command.ToString() + "`n" + "Export-Clixml -Path $FolderPath\services.xml -InputObject `$NMEObjects.Services -Depth 10")}
+            {$_ -contains 'DNSDomains' -or $_ -contains 'All'}  {$command = [scriptblock]::Create($command.ToString() + "`n" + "Export-Clixml -Path $FolderPath\dnsdomains.xml -InputObject `$NMEObjects.DNSDomains -Depth 10")}
+            {$_ -contains 'Credentials' -or $_ -contains 'All'} {$command = [scriptblock]::Create($command.ToString() + "`n" + "Export-Clixml -Path $FolderPath\credentials.xml -InputObject `$NMEObjects.Credentials -Depth 10")}
+            #{$_ -contains 'All'}         {$command = [scriptblock]::Create($command.ToString() + "`n" + "Export-Clixml -Path $FolderPath\nmeobjects.xml -InputObject `$NMEObjects -Depth 10")}
         }
 
         if($AsJob)
@@ -221,8 +221,210 @@ Function Restore-Objects
     {
         $command = {}
 
-        #Building resture command based on Objects parameter input
-        switch ($Objects)
+        #Building restore command based on Objects parameter input
+        
+        if($Objects -contains 'Networks' -or $Objects -contains 'All')
+        {
+            $command = [scriptblock]::Create($command.ToString() + "`n" + "
+            `$Global:Networks = Import-Clixml -Path $FolderPath\networks.xml
+            `$NMEObjects.Networks = `$Global:Networks
+            
+            foreach(`$o in `$Networks.Values)
+            {
+                Add-Member -InputObject `$o -MemberType ScriptMethod -Name GetComputers {
+
+                    `$results = @()
+
+                    foreach(`$i in `$NMEObjects.Computers.Values)
+                    {
+                        if(IPHelper -IsMember -IPAddress `$i.IPAddress -CIDR `$this.CIDR)
+                        {
+                            `$results += `$i
+                        }
+                    }
+
+                    return `$results
+                }
+
+                Add-Member -InputObject `$o -MemberType ScriptMethod -Name GetPotentialComputers {
+
+                    `$results = @()
+
+                    `$members = IPHelper -ListMembers -CIDR `$this.CIDR
+
+                    foreach(`$i in `$members)
+                    {
+                        `$results += Get-ComputerObject -IP `$i -NotToArray
+                    }
+
+                    return `$results
+                }
+            }")
+        }
+        
+        if($Objects -contains 'Computers' -or $Objects -contains 'All')
+        {
+            $command = [scriptblock]::Create($command.ToString() + "`n" + "
+            `$Global:Computers = Import-Clixml -Path $FolderPath\computers.xml
+            `$NMEObjects.Computers = `$Global:Computers
+
+            foreach(`$o in `$Computers.Values)
+            {
+                #Member function that returns all DNS names related to this IP address
+                Add-Member -InputObject `$o -MemberType ScriptMethod -Name GetDNSNames {
+
+                    function recursive(`$rec)
+                    {
+                        `$n = @(`$rec.Name)
+            
+                        `$more = `$NMEObjects.DNSDomains.Values.Records|?{`$_.Data -eq `$rec.Name}
+
+                        if(`$more)
+                        {
+                            foreach(`$i in `$more)
+                            {
+                                `$n += recursive `$i
+                            }
+                        }
+
+                        return `$n
+                    }
+
+                    `$names = @()
+
+                    `$forward = `$NMEObjects.DNSDomains.Values.Records|?{`$_.Data -eq `$this.IPAddress}
+
+                    foreach(`$f in `$forward)
+                    {
+                        `$names += recursive `$f
+                    }
+
+                    `$reverse = `$NMEObjects.DNSDomains.Values.Records|?{`$_.Name -eq `$this.IPAddress}
+
+                    foreach(`$r in `$reverse)
+                    {
+                        `$names += `$r.Data
+                    }
+
+                    `$names = `$names| select -Unique
+
+                    return `$names
+                }
+
+                #Member function that returns all Service objects related to this IP address (accepting service type as param)
+                Add-Member -InputObject `$o -MemberType ScriptMethod -Name GetServices {
+                    
+                    Param
+                    (
+                        `$svc
+                    )
+
+                    if(`$svc)
+                    {
+                        `$result = `$NMEObjects.Services.`$svc.Values|?{`$_.HostIP -eq `$this.IPAddress}
+                    }
+                    else
+                    {
+                        `$result = foreach(`$i in `$NMEObjects.Services.GetEnumerator()){
+                            `$i.Value.Values|?{`$_.HostIP -eq `$this.IPAddress}
+                        }
+                    }
+
+                    return `$result
+                }
+
+                #Member function that returns the Network object to which this computer belongs
+                Add-Member -InputObject `$o -MemberType ScriptMethod -Name GetNetwork {
+
+                    foreach(`$i in `$NMEObjects.Networks.Values)
+                    {
+                        if(IPHelper -IsMember -IPAddress `$this.IPAddress -CIDR `$i.CIDR)
+                        {
+                            return `$i
+                        }
+                    }
+                }
+            }")
+
+        }
+        
+        if($Objects -contains 'Services' -or $Objects -contains 'All')
+        {
+            $command = [scriptblock]::Create($command.ToString() + "`n" + "
+            `$Global:Services = Import-Clixml -Path $FolderPath\services.xml
+            `$NMEObjects.Services = `$Global:Services
+            
+            foreach(`$o in `$Services.MSSQL.Values)
+            {
+                Add-Member -InputObject `$o -MemberType ScriptMethod -Name GetValidCreds {
+
+                    if(`$this.TCPPort)
+                    {
+                        `$SvcId = `$this.TCPPort
+                    }
+                    else
+                    {
+                        `$SvcId = `$this.NamedPipe
+                    }
+
+                    `$result = `$NMEObjects.Credentials|
+                    ?{`$_.HostIP -eq `$this.HostIP}|
+                    ?{`$_.Service -eq `$this.Service}|
+                    ?{`$_.SvcID -eq `$SvcId}
+
+                    return `$result
+                }
+            }
+
+            foreach(`$o in `$Services.HTTP.Servers.Values)
+            {
+                Add-Member -InputObject `$o -MemberType ScriptMethod -Name GetVirtualHosts {
+
+                    `$result = (`$NMEObjects.Services.HTTP,Instances.GetEnumerator()|
+                        ?{`$_.Key -match `"`$(`$this.HostIP)`:`$(`$this.TCPPort)`"}).value
+
+                    return `$result
+                }
+            }")
+        }
+
+        if($Objects -contains 'DNSDomains' -or $Objects -contains 'All')
+        {
+            $command = [scriptblock]::Create($command.ToString() + "`n" + "
+            `$Global:DNSDomains = Import-Clixml -Path $FolderPath\dnsdomains.xml
+            `$NMEObjects.DNSDomains = `$Global:DNSDomains
+            
+            foreach(`$o in `$DNSDomains.Values)
+            {
+                Add-Member -InputObject `$o -MemberType ScriptMethod -Name RecordExist {
+                    Param
+                    (
+                        `$name,
+                        `$type,
+                        `$data
+                    )
+
+                    if(`$this.Records|?{`$_.Name -eq `$name -and `$_.Type -eq `$type -and `$_.Data -eq `$data})
+                    {
+                        return `$true
+                    }
+                    else
+                    {
+                        return `$false
+                    }
+                }
+            }")
+        }
+
+        if($Objects -contains 'Credentials' -or $Objects -contains 'All')
+        {
+            $command = [scriptblock]::Create($command.ToString() + "`n" + "
+            `$Global:Credentials = Import-Clixml -Path $FolderPath\credentials.xml
+            `$NMEObjects.Credentials = `$Global:Credentials
+            ")
+        }
+
+        <#switch ($Objects)
         {
             {$_ -contains 'Networks'}    {$command = [scriptblock]::Create($command.ToString() + "`n" + "`$Global:Networks = Import-Clixml -Path $FolderPath\networks.xml; `$NMEObjects.Networks = `$Global:Networks")}
             {$_ -contains 'Computers'}   {$command = [scriptblock]::Create($command.ToString() + "`n" + "`$Global:Computers = Import-Clixml -Path $FolderPath\computers.xml; `$NMEObjects.Computers = `$Global:Computers")}
@@ -236,7 +438,7 @@ Function Restore-Objects
             `$Global:DNSDomains = `$NMEObjects.DNSDomains;`
             `$Global:Credentials = `$NMEObjects.Credentials`
             ")}
-        }
+        }#>
 
         try
         {

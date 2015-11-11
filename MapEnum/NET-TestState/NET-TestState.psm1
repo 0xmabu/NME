@@ -301,7 +301,7 @@ Function Test-NETState
 
                     $data = $ping.Send($Target,$TimeOut)
 
-                    switch ($data.state)
+                    switch ($data.Status)
                     {
                         'TimedOut' {$stateObj.State = 'Down'}
                         'Success'  {$stateObj.State = 'Up'}

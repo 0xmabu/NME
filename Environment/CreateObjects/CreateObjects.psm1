@@ -458,7 +458,7 @@ NME-GetCredential -Username sa -Password sa -Service $Services.MSSQL.'192.168.1.
 
 .NOTES
 #>
-Function Get-CredentialObject
+Function Get-CredentialObject #Under development...
 {
     [CmdletBinding()]
     Param
@@ -466,7 +466,7 @@ Function Get-CredentialObject
         [Parameter(Mandatory)]
         [string]$Username,
 
-        #[Parameter(Mandatory)]
+        #[Parameter(Mandatory)] #Some credentials, like AD, are tied to a service rather one specific host, have to think about this one..
         #[string]$HostIP,
 
         [Parameter(Mandatory)]
@@ -732,10 +732,10 @@ Function Get-SMBShareObject
         $Key = "$HostIP`:$ShareName"
 
         #Checking if object already exists
-        if($NMEObjects.Services.SMBShares.Contains($Key))
+        if($NMEObjects.Services.SMB.Shares.Contains($Key))
         {
             Write-Verbose 'SMB share object already exists (returning from array)'
-            return $NMEObjects.Services.SMBShares.$Key
+            return $NMEObjects.Services.SMB.Shares.$Key
         }
 
         #Stops further processing if existing object is required
@@ -769,7 +769,7 @@ Function Get-SMBShareObject
   
         if(!$NotToArray)
         {
-            [void]$NMEObjects.Services.SMBShares.Add($Key,$ShareObj)
+            [void]$NMEObjects.Services.SMB.Shares.Add($Key,$ShareObj)
             Write-Verbose 'Added SMB share object to global array'
         }
 
@@ -831,10 +831,10 @@ Function Get-HTTPServerObject
         $Key = "$HostIP`:$TCPPort"
 
         #Checking if object already exists
-        if($NMEObjects.Services.HTTPServer.Contains($Key))
+        if($NMEObjects.Services.HTTP.Servers.Contains($Key))
         {
             Write-Verbose 'HTTP server object already exists (returning from array)'
-            return $NMEObjects.Services.HTTPServer.$Key
+            return $NMEObjects.Services.HTTP.Servers.$Key
         }
         else #Stops further processing if existing object is required
         {
@@ -860,21 +860,18 @@ Function Get-HTTPServerObject
 
         #Creating HTTP server object
         $HttpObj = New-Object psobject -Property @{
-            HostIP        = $HostIP
-            TCPPort       = $TCPPort
-            Service       = 'HTTPServer'
-            Product       = $null
-            Version       = $null
-            SecureChannel = $null
-            HttpAuth      = $null
-            HttpMethods   = $null
-            Instances     = @{}
-        } |Select-Object HostIP,TCPPort,Service,Product,Version,SecureChannel,HttpAuth,HttpMethods,Instances
+
+            HostIP  = $HostIP
+            TCPPort = $TCPPort
+            Service = 'HTTPServer'
+            SSL     = $null
+
+        } |Select-Object HostIP, TCPPort, Service, SSL
 
         #Member function that returns all HTTP virtual host objects related to this HTTP server
         Add-Member -InputObject $HttpObj -MemberType ScriptMethod -Name GetVirtualHosts {
 
-            $result = ($NMEObjects.Services.HTTPVirtualHost.GetEnumerator()|
+            $result = ($NMEObjects.Services.HTTP.Instances.GetEnumerator()|
                 ?{$_.Key -match "$($this.HostIP)`:$($this.TCPPort)"}).value
 
             return $result
@@ -883,7 +880,7 @@ Function Get-HTTPServerObject
         #Adding object to Services hashtable
         if(!$NotToArray)
         {
-            [void]$NMEObjects.Services.HTTPServer.Add($Key,$HttpObj)
+            [void]$NMEObjects.Services.HTTP.Servers.Add($Key,$HttpObj)
             Write-Verbose 'Added HTTP server object to global array'
         }
 
@@ -907,8 +904,8 @@ Specifies the IPv4 or IPv6 address of the computer hosting the service.
 .PARAMETER TCPPort
 Specifies the TCP port on which the hosting service is listening.
 
-.PARAMETER URL
-Specifies the URL of the virtual host.
+.PARAMETER HostHeader
+Specifies the host header of the virtual host.
 
 .PARAMETER NotToArray
 Prevents the object from being added to the global objects array.
@@ -917,86 +914,249 @@ Prevents the object from being added to the global objects array.
 Forces the function to only return an existing object.
 
 .EXAMPLE
-NME-GetHTTPVirtualHost -HostIP 192.168.1.10 -TCPPort 80 -URL application.example.com
+NME-GetHTTPVirtualHost -HostIP 192.168.1.10 -TCPPort 80 -HostHeader application.example.com
 
 .NOTES
 #>
-Function Get-HTTPVirtualHostObject
+Function Get-HTTPServerInstanceObject #Under development...
 {
     [CmdletBinding()]
     Param
     (
-        [Parameter(Mandatory)]
+        [Parameter(Mandatory = $true)]
         [string]$HostIP,
 
-        [Parameter(Mandatory)]
+        [Parameter(Mandatory = $true)]
         [int]$TCPPort,
 
-        [Parameter(Mandatory)]
+        [Parameter()]
+        [bool]$SSL,
+
+        [Parameter()]
         [string]$HostHeader,
+
+        [Parameter()]
+        [string]$URI = '/',
+
+        [Parameter(ValueFromPipeline)]
+        [psobject]$ResponseObject,
 
         [Parameter()]
         [switch]$NotToArray,
 
+        #[Parameter()]
+        #[switch]$OnlyFromArray,
+
         [Parameter()]
-        [switch]$OnlyFromArray
+        [switch]$Force # or "NoParse"
     )
 
     BEGIN
-    {}
+    {
+        #Setting Protocol variable (http or https)
+        if($SSL)
+        {
+            $protocol = 'https'
+        }
+        else
+        {
+            $protocol = 'http'
+        }
+        
+        if($HostHeader)
+        {
+            $url = "$($protocol)://$($HostHeader):$($TCPPort)$($URI)"
+        }
+        else
+        {
+            $url = "$($protocol)://$($HostIP):$($TCPPort)$($URI)"
+        }
+
+        #Setting instance keys
+        $RequestKey = "$($HostIP):$($TCPPort):$($protocol):$($HostHeader):$($URI)" #Key of the requested URL
+        $BaseURLKey = "$($HostIP):$($TCPPort):$($protocol):$($HostHeader):/" #Key of the base URL (exluding URI) of the request
+        $DefaultKey = "$($HostIP):$($TCPPort):$($protocol)::/" #Key of the default instance for the socket
+    }
 
     PROCESS
     {
-        #Setting object key
-        $Key = "$HostIP`:$TCPPort`:$HostHeader"
+        #Getting existing instances
+        $ExistingInstance = $NMEObjects.Services.HTTP.Instances.$RequestKey #Existing instance matching the request
+        $DefaultInstance = $NMEObjects.Services.HTTP.Instances.$DefaultKey #Default instance for the request
+        $SocketInstances = $NMEObjects.Services.HTTP.Instances.Values|?{$_.HostIP -eq $HostIP -and $_.TCPPort -eq $TCPPort} #All existing instances on the requested socket
 
-        #Checking if object already exists
-        if($NMEObjects.Services.HTTPVirtualHost.Contains($Key))
+        Write-Host ($ResponseObject.Response |select ContentLength,ContentEncoding,CharacterSet,StatusCode,StatusDescription,ProtocolVersion,ResponseUri,Method|fl |Out-String) -ForegroundColor Yellow
+        Write-Host ($ResponseObject.Headers |fl |Out-String) -ForegroundColor Yellow
+
+        if($ExistingInstance) #Requested instance exist
         {
-            Write-Verbose 'HTTP virtual host object already exists (returning from array)'
-            return $NMEObjects.Services.HTTPVirtualHost.$Key
-        }
-        else #Stops further processing if existing object is required
-        {
-            if($OnlyFromArray)
+            Write-Verbose "Requested instance exist ($url)"
+            
+            if($RequestKey -ne $DefaultKey) #Excluding base instances themselves from this processing
             {
-                Write-Verbose 'HTTP virtual host object does not exist (returning)'
-                return
+                #Checking if response comes from default instance and known transparency/intermediate layers
+                $refProps = ($ResponseObject.Headers|gm|?{$_.MemberType -eq 'NoteProperty'}).Name
+
+                foreach($r in ($DefaultInstance.Data + $DefaultInstance.UnmatchedResponses))
+                {
+                
+                    $diffProps = ($r.Headers|gm|?{$_.MemberType -eq 'NoteProperty'}).Name
+
+                    if($diffProps)
+                    {
+                        #Do Da Diff
+                        $diff = Compare-Object $refProps $diffProps
+                
+                        if(! $diff)
+                        {
+                            Write-Verbose "Response matches default instance ($($DefaultInstance.URL))"
+                            return $DefaultInstance
+                        }
+                    }
+                    else
+                    {
+                        Write-Warning "No diffProps available on $($DefaultInstance.URL)"
+                    }
+                }
+            }
+
+            #Checking if response exist and if there are any anomalies (non-matching server header) that should be saved to unmatched
+            if($ResponseObject.Headers.Server -eq $ExistingInstance.Server)
+            {
+                if($ExistingInstance.Data|?{$_.Request.Method -eq $ResponseObject.Request.Method -and $_.Response.StatusCode -eq $ResponseObject.Response.StatusCode})
+                {
+                    Write-Verbose "Response exists in $url data"
+                }
+                else
+                {
+                    Write-Verbose "Adding response to $url data"
+                    $ExistingInstance.Data += $ResponseObject
+                }
+
+                return $ExistingInstance
+            }
+            else #Could possibly be removed so that all responses are trusted to come from the requested instance..
+            {
+                if($ExistingInstance.Data|?{$_.Request.Method -eq $ResponseObject.Request.Method -and $_.Response.StatusCode -eq $Response.Request.Method})
+                {
+                    Write-Verbose "Response exists in $url unmatched data"
+                }
+                else
+                {
+                    Write-Verbose "Adding response to $url unmatched data"
+                    $ExistingInstance.UnmatchedResponses += $ResponseObject
+                }
+                
+                return $ExistingInstance
+            }
+        }
+        else #Requested instance does not exist (fingerprinting response to identify potential match before creating)
+        {
+            Write-Verbose "Requested instance does not exist ($url)"
+            
+            if($RequestKey -match $DefaultKey) #Excluding default instance from fingerprinting
+            {
+                Write-Verbose "Requested instance is a default instance"
+            }
+            else #Base object comparison
+            {
+                $refProps = ($ResponseObject.Headers|gm|?{$_.MemberType -eq 'NoteProperty'}).Name
+
+                #Default instance comparison
+                $diffResponse = $DefaultInstance.Data + $DefaultInstance.UnmatchedResponses |?{$_.Response.StatusCode -eq $ResponseObject.Response.StatusCode -and $_.Request.Method -eq $ResponseObject.Request.Method} #<- keep tracking this - might be that we need to remove method comparison...
+                
+                if($diffResponse)
+                {
+                    $diffProps = ($diffResponse.Headers|gm|?{$_.MemberType -eq 'NoteProperty'}).Name
+                
+                    if($diffProps)
+                    {
+                        $diff = Compare-Object $refProps $diffProps
+
+                        if(! $diff)
+                        {
+                            Write-Verbose "Matching header in $($DefaultInstance.URL)"
+                            return $DefaultInstance
+                        }
+                    }
+                    else
+                    {
+                        Write-Warning "No diffProps to compare with"
+                    }
+                }
+                else
+                {
+                    Write-Warning "No diffResponse to compare with"
+                }
+
+                #Other instance comparisons
+                $BaseInstances = $NMEObjects.Services.HTTP.Instances.Values|
+                    ?{$_.HostIP -eq $HostIP -and $_.TCPPort -eq $TCPPort}| #Only instances matching requested socket
+                    ?{$_.URL -ne "$($protocol)://$($HostIP):$($TCPPort)/"}#| #Removing default instance
+                    #?{[regex]::matches($_.URL,"/").count -eq 3} #Only instances with base URI
+
+                foreach($i in $BaseInstances)
+                {
+                    $diffResponse = $i.Data|?{$_.Response.StatusCode -eq $ResponseObject.Response.StatusCode -and $_.Request.Method -eq $ResponseObject.Request.Method} #<- keep tracking this - might be that we need to remove method comparison...
+                    
+                    if($diffResponse)
+                    {
+
+                        $diffProps = ($diffResponse.Headers|gm|?{$_.MemberType -eq 'NoteProperty'}).Name
+                    
+                        if($diffProps)
+                        {
+                            $diff = Compare-Object $refProps $diffProps
+
+                            if(! $diff)
+                            {
+                                Write-Verbose "Matching header in $($i.URL)"
+                                return $i
+                            }
+                        }
+                        else
+                        {
+                            Write-Warning "No diffProps to compare with"
+                        }
+                    }
+                    else
+                    {
+                        Write-Warning "No diffResponse to compare with"
+                    }
+                }
             }
         }
 
-        #Validating params
-        if( !(IPHelper -ValidateIP -IPAddress $HostIP))
-        {
-            Write-Verbose 'Unable to create HTTP virtual host object (IP address invalid)'
-            Return
-        }
+        #Creating HTTP server instance object
+        Write-Verbose "Creating new instance"
+        $HttpInstanceObj = New-Object psobject -Property @{
+    
+            #META
+            URL                = $url
+            HostIP             = $HostIP
+            TCPPort            = $TCPPort
+            Service            = 'HTTPServerInstance'
 
-        if($TCPPort -lt 1 -or $TCPPort -gt 65535)
-        {
-            Write-Verbose 'Unable to create HTTP virtual host object (TCP port invalid)'
-            Return
-        }
-
-        #Creating HTTP virtual host object
-        $HttpVhostObj = New-Object psobject -Property @{
-            HostIP       = $HostIP
-            TCPPort      = $TCPPort
-            Service      = 'HTTPVirtualHost'
-            HostHeader   = $HostHeader
-            HttpTitle    = $null
-            HttpResponse = $null
-            StartPage    = $null
-        } |Select-Object HostIP,TCPPort,Service,HostHeader,HttpResponse,HttpTitle,StartPage
+            #IDENTIFIERS
+            Data               = @($ResponseObject)
+            Server             = $ResponseObject.Headers.Server
+            Screenshot         = @()
+            #HTTPAuth          = $null
+            #HTTPMethods       = $null
+            #Privileges        = $null
+            AlternateNames     = @()
+            UnmatchedResponses = @()
+    
+        } |Select-Object URL, HostIP, TCPPort, Service, Data, Server, Screenshot, AlternateNames, UnmatchedResponses
 
         #Adding object to Services hashtable
         if(!$NotToArray)
         {
-            [void]$NMEObjects.Services.HTTPVirtualHost.Add($Key,$HttpVhostObj)
-            Write-Verbose 'Added HTTP virtual host object to global array'
+            [void]$NMEObjects.Services.HTTP.Instances.Add($RequestKey,$HttpInstanceObj)
+            Write-Verbose 'Added HTTP server instance host object to global array'
         }
 
-        Return $HttpVhostObj
+        Return $HttpInstanceObj
     }
 
     END

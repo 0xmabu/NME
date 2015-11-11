@@ -202,19 +202,20 @@ Function Test-SMBShares
 
         $unc = "\\$HostIP\$ShareName"
 
+        if($ShowProgress)
+        {
+            Write-Progress -Activity 'Testing shares' -CurrentOperation "currently processing $unc" -Status "$($Counter.Done) of $($Counter.Total) shares completed" -PercentComplete (($($Counter.Done)/$($Counter.Total))*100)
+            $Counter.Done++
+        }
+
         try
         {
-            if($ShowProgress)
-            {
-                Write-Progress -Activity 'Testing shares' -CurrentOperation "currently processing $unc" -Status "$($Counter.Done) of $($Counter.Total) shares completed" -PercentComplete (($($Counter.Done)/$($Counter.Total))*100)
-                $Counter.Done++
-            }
-
             $message = 'Attempting to mount'
             LogEvent -source $unc -command $CmdName -severity Info -event $message -ToFile -ToConsole
 
-            [void](New-PSDrive -Name 'W' -PSProvider FileSystem -Root $unc -Persist -ErrorAction Stop)
-            Remove-PSDrive -Name 'W'
+            #[void](New-PSDrive -Name 'W' -PSProvider FileSystem -Root $unc -Persist -ErrorAction Stop)
+            New-PSDrive -Name 'NME' -PSProvider FileSystem -Root $unc -ErrorAction Stop |Out-Null
+            Get-ChildItem -Path 'NME:\' -Directory -ErrorAction Stop |Out-Null 
 
             $message = 'Successfully mounted'
             LogEvent -source $unc -command $CmdName -severity Info -event $message -ToFile -ToConsole
@@ -247,8 +248,8 @@ Function Test-SMBShares
                     $message = 'Attempting to write'
                     LogEvent -source $unc -command $CmdName -severity Info -event $message -ToFile -ToConsole
 
-                    [void](New-Item -Path "$unc\write_test.txt" -Type file -ErrorAction Stop)
-                    Remove-Item -Path "$unc\write_test.txt"
+                    [void](New-Item -Path 'NME:\write_test.txt' -Type file -ErrorAction Stop)
+                    Remove-Item -Path 'NME:\write_test.txt'
 
                     $message = 'Write access allowed'
                     LogEvent -source $unc -command $CmdName -severity Succ -event $message -ToFile -ToConsole
@@ -421,7 +422,7 @@ Function Test-SMBShares
                                     }
                                         
                                     Write-Verbose "Downloading file `'$item`'"
-                                    Copy-Item $item "$ScriptDir\downloads\$lpath" # May need -ErrorAction SilentlyContinue or POSSIBLY add a try catch on this one....
+                                    Copy-Item $item "$ScriptDir\downloads\$lpath" #May need -ErrorAction SilentlyContinue or POSSIBLY add a try catch on this one....
                                 }
 
                                 $message = 'String-matched file(s) downloaded'
@@ -465,7 +466,7 @@ Function Test-SMBShares
         {
             if($ShareObject.Permissions.AllowRead.Contains($NMEVars.CurrentUser))
             {
-                $ShareObject.Permissions.AllowRead = $ShareObject.Permissions.AllowRead|?{$_ -ne $NMEVars.CurrentUser}
+                $ShareObject.Permissions.AllowRead = @($ShareObject.Permissions.AllowRead|?{$_ -ne $NMEVars.CurrentUser})
             }
 
             if($_.Exception.NativeErrorCode)
@@ -478,6 +479,10 @@ Function Test-SMBShares
                 $message = $_.Exception.Message
                 LogEvent -source $unc -command $CmdName -severity Err -event $message -ToFile -ToConsole
             }
+        }
+        finally
+        {
+            Remove-PSDrive -Name 'NME' -ErrorAction Ignore
         }
     }
 
